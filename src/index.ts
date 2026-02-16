@@ -40,6 +40,15 @@ bot.on('text', (ctx, next) => {
   return next();
 });
 
+bot.use(async (ctx, next) => {
+  console.log("------------------------------------");
+  console.log(`📥 Herhangi bir etkileşim geldi! Tip: ${ctx.updateType}`);
+  if (ctx.message) {
+    console.log(`📝 İçerik: ${(ctx.message as any).text}`);
+  }
+  return next();
+});
+
 // 2. Özet Komutu: /ozet
 bot.command('ozet', async (ctx) => {
   await ctx.sendChatAction('typing');
