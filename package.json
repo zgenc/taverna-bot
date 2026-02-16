@@ -19,7 +19,7 @@
   "dependencies": {
     "better-sqlite3": "^11.0.0",
     "dotenv": "^16.4.5",
-    "openai": "^4.52.0",
+    "@google/generative-ai": "^0.24.1",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
