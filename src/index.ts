@@ -1,18 +1,20 @@
 import { Telegraf } from 'telegraf';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 // Çevresel değişken kontrolü
-if (!process.env.TELEGRAM_TOKEN || !process.env.OPENAI_API_KEY) {
+if (!process.env.TELEGRAM_TOKEN || !process.env.GEMINI_API_KEY) {
   console.error("HATA: .env dosyasında eksik bilgi var!");
   process.exit(1);
 }
 
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const db = new Database('chat.db');
 
 // SQLite Tablo Kurulumu
@@ -54,19 +56,16 @@ bot.command('ozet', async (ctx) => {
   const sohbetGecmisi = rows.map(r => `${r.user_name}: ${r.message_text}`).join('\n');
 
   try {
-    const chatCompletion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Ucuz ve hızlı model
-      messages: [
-        { role: "system", content: "Sen bir grup asistanısın. Aşağıda sana verilen grup konuşmalarını analiz et. Önemli olayları, kararları ve konuşulan konuları esprili, kısa ve öz bir şekilde maddeler halinde özetle. Dedikodulara dikkat çek." },
-        { role: "user", content: `İşte son 24 saatin konuşmaları:\n\n${sohbetGecmisi}` }
-      ],
-    });
+    const prompt = `Sen bir grup asistanısın. Aşağıdaki grup konuşmalarını analiz et. Önemli olayları, kararları ve konuları esprili, kısa ve öz bir şekilde maddeler halinde özetle:\n\n${sohbetGecmisi}`;
 
-    const cevap = chatCompletion.choices[0].message.content;
-    ctx.reply(cevap || "Özet oluşturulamadı.");
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    ctx.reply(text || "Özet oluşturulamadı.");
   } catch (error) {
-    console.error("AI Hatası:", error);
-    ctx.reply("AI ile konuşurken bir hata oluştu.");
+    console.error("Gemini Hatası:", error);
+    ctx.reply("Gemini ile konuşurken bir hata oluştu.");
   }
 });
 
