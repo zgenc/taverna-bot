@@ -11,7 +11,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // Model ayarları: Temperature düşük, odak yüksek şekerim
 const model = genAI.getGenerativeModel({ 
-  model: "gemini-1.5-flash", // En stabil versiyon budur tatlım
+  model: "gemini-2.5-flash",
   generationConfig: {
     temperature: 0.3, 
   }
