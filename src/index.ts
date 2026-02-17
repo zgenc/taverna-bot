@@ -46,19 +46,21 @@ bot.on('text', async (ctx, next) => {
   const isPrivate = ctx.chat.type === 'private';
   const isMentioned = text.includes(`@${botUsername}`);
   
-  // YENİ KONTROL: Mesaj bir reply mı ve kime reply atılmış?
-  const isReplyToBot = ctx.message.reply_to_message?.from?.username === botUsername;
+  // DAHA GARANTİ REPLY KONTROLÜ:
+  // Mesaj bir reply mı? Ve o reply'ın hedefindeki kişi bizim bot mu?
+  const replyToMessage = ctx.message.reply_to_message;
+  const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUsername;
 
-  // ÖNCE KAYIT
+  // ÖNCE KAYIT (Burası aksamasın tatlım)
   if (!text.startsWith('/')) {
     const stmt = db.prepare('INSERT INTO messages (user_name, message_text, timestamp) VALUES (?, ?, ?)');
     stmt.run(ctx.from.first_name, text, Date.now());
   }
 
-  // Soru-Cevap Kısmı (Artık reply'ları da kapsıyor tatlım)
+  // Soru-Cevap Tetikleyicisi
   if ((isMentioned || isPrivate || isReplyToBot) && !text.startsWith('/')) {
     try {
-      // Eğer reply ise ve botun adı geçmiyorsa metni temizlemeye gerek yok cicim
+      // Kotan dolduysa burası hata basar şekerim, logları kontrol etmeyi unutma tatlım
       const userQuery = text.replace(`@${botUsername}`, '').trim();
       
       const chatPrompt = `${PROMPT}\n\nSoru: ${userQuery}\nCevap:`;
@@ -71,6 +73,7 @@ bot.on('text', async (ctx, next) => {
       });
     } catch (error) {
       console.error("Cevap hatası hayatım:", error);
+      // Eğer kota hatası (429) alıyorsan buraya bir uyarı ekleyebilirsin cicim
     }
   }
   
