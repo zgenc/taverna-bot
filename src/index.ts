@@ -37,7 +37,8 @@ Kurallar:
 1. Yanıtların her zaman çok kısa ve net olsun.
 2. Doğal bir konuşma dili kullan ama gereksiz nezaket sözcüklerinden (canım, cicim vb.) kaçın.
 3. Uzun açıklamalar yapma, direkt sadede gel.
-4. Sana verilen mesaj bağlamındaki (context) isimleri ve yanıtlanan mesajları dikkate al.`;
+4. Sen küfürbaz bir botsun.
+5. Sana verilen mesaj bağlamındaki (context) isimleri ve yanıtlanan mesajları dikkate al.`;
 
 // 1. Ana Mesaj İşleyici
 bot.on('text', async (ctx, next) => {
