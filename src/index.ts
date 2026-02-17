@@ -45,17 +45,22 @@ bot.on('text', async (ctx, next) => {
   const text = ctx.message.text;
   const isPrivate = ctx.chat.type === 'private';
   const isMentioned = text.includes(`@${botUsername}`);
+  
+  // YENİ KONTROL: Mesaj bir reply mı ve kime reply atılmış?
+  const isReplyToBot = ctx.message.reply_to_message?.from?.username === botUsername;
 
-  // ÖNCE KAYIT (Hafıza için bu şart şekerim)
+  // ÖNCE KAYIT
   if (!text.startsWith('/')) {
     const stmt = db.prepare('INSERT INTO messages (user_name, message_text, timestamp) VALUES (?, ?, ?)');
     stmt.run(ctx.from.first_name, text, Date.now());
   }
 
-  // Soru-Cevap Kısmı
-  if ((isMentioned || isPrivate) && !text.startsWith('/')) {
+  // Soru-Cevap Kısmı (Artık reply'ları da kapsıyor tatlım)
+  if ((isMentioned || isPrivate || isReplyToBot) && !text.startsWith('/')) {
     try {
+      // Eğer reply ise ve botun adı geçmiyorsa metni temizlemeye gerek yok cicim
       const userQuery = text.replace(`@${botUsername}`, '').trim();
+      
       const chatPrompt = `${PROMPT}\n\nSoru: ${userQuery}\nCevap:`;
 
       const result = await model.generateContent(chatPrompt);
