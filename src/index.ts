@@ -48,50 +48,54 @@ bot.on('text', async (ctx, next) => {
   const replyToMessage = ctx.message.reply_to_message;
   const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUsername;
 
-  // ÖNCE KAYIT (Hafıza dolmaya devam etsin cicim)
+  // 1. GELEN MESAJI KAYDET (Hafıza için cicim)
   if (!text.startsWith('/')) {
     const stmt = db.prepare('INSERT INTO messages (user_name, message_text, timestamp) VALUES (?, ?, ?)');
     stmt.run(ctx.from.first_name, text, Date.now());
   }
 
-  // Soru-Cevap Tetikleyicisi
+  // 2. CEVAP TETİKLEYİCİSİ
   if ((isMentioned || isPrivate || isReplyToBot) && !text.startsWith('/')) {
     try {
-      // Senin yazdığın mesajdan botun adını temizliyoruz tatlım
       let userQuery = text.replace(`@${botUsername}`, '').trim();
-      
       let finalPrompt = "";
 
-      // DURUM ANALİZİ: Eğer bir mesajı yanıtlayarak bota bir şey sorduysan şekerim
+      // BAĞLAM OLUŞTURMA
       if (replyToMessage && 'text' in replyToMessage) {
         const originalText = replyToMessage.text;
         const originalAuthor = replyToMessage.from?.first_name || "Biri";
-
-        if (userQuery === "") {
-            // Sadece botu etiketleyip bıraktıysan tatlım
-            finalPrompt = `Şu mesajı kısaca yorumla veya açıkla şekerim: "${originalAuthor}: ${originalText}"`;
+        
+        // Eğer botun kendi mesajına reply atıldıysa şekerim
+        const botunKendiCevabiMi = replyToMessage.from?.username === botUsername;
+        
+        if (botunKendiCevabiMi) {
+            finalPrompt = `Sen daha önce şunu demiştin: "${originalText}". \nKullanıcı bu cevabına istinaden şunu soruyor: ${userQuery || "Bu cevabı kime/neye istinaden verdin?"}`;
         } else {
-            // Hem reply atıp hem de soru sorduysan (İstediğin tam olarak bu cicim)
-            finalPrompt = `Sana bir mesajı yanıtlayarak soru soruluyor tatlım.\n\nYanıtlanan mesaj: "${originalAuthor}: ${originalText}"\n\nKullanıcının sorusu: ${userQuery}`;
+            finalPrompt = `Yanıtlanan mesaj: "${originalAuthor}: ${originalText}"\nKullanıcının sorusu: ${userQuery}`;
         }
       } else {
-        // Normal mention veya DM ise hayatım
         finalPrompt = userQuery;
       }
 
-      // Eğer hala bomboşsa (mesela sadece @bot_adi yazılmış ve reply yoksa)
       if (!finalPrompt || finalPrompt.trim() === "") {
         return await ctx.reply("Açıklamam için bir metin veya ifade belirtmelisin, canım.");
       }
 
       const chatPrompt = `${PROMPT}\n\nİçerik: ${finalPrompt}\nCevap:`;
-
       const result = await model.generateContent(chatPrompt);
       const responseText = result.response.text();
 
-      return await ctx.reply(responseText, { 
+      // BOTUN CEVABINI GÖNDER VE ONU DA KAYDET (HAYATİ KISIM BURASI ŞEKERİM)
+      const sentMessage = await ctx.reply(responseText, { 
         reply_parameters: { message_id: ctx.message.message_id } 
       });
+
+      // Botun kendi cevabını da veritabanına ekliyoruz ki sonra hatırlasın cicim
+      const stmt = db.prepare('INSERT INTO messages (user_name, message_text, timestamp) VALUES (?, ?, ?)');
+      stmt.run(botUsername, responseText, Date.now());
+
+      return sentMessage;
+
     } catch (error) {
       console.error("Cevap hatası hayatım:", error);
     }
