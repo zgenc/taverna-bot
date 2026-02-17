@@ -9,11 +9,11 @@ dotenv.config();
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN || '');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// Model ayarları: Gevezeliği önlemek için temperature düşük tutuldu şekerim
+// Model ayarları: Temperature düşük, odak yüksek şekerim
 const model = genAI.getGenerativeModel({ 
-  model: "gemini-2.5-flash",
+  model: "gemini-1.5-flash", // En stabil versiyon budur tatlım
   generationConfig: {
-    temperature: 0.3, // Daha az boş yapar, daha çok bilgi verir cicim
+    temperature: 0.3, 
   }
 });
 
@@ -33,7 +33,7 @@ bot.telegram.getMe().then((info) => {
   botUsername = info.username;
 });
 
-// Kişilik Talimatı: Net, öz ve vıcık vıcık hayatım
+// Kişilik Talimatı
 const PROMPT = `Sen bilgi odaklı, net ve öz bir asistansın. 
 Gereksiz betimlemelerden, dolaylı anlatımlardan ve gevezelikten kaçın şekerim. 
 Sadece istenen bilgiyi veya özeti, en az kelimeyle en çok anlamı ifade edecek şekilde ver tatlım. 
@@ -45,6 +45,12 @@ bot.on('text', async (ctx, next) => {
   const text = ctx.message.text;
   const isPrivate = ctx.chat.type === 'private';
   const isMentioned = text.includes(`@${botUsername}`);
+
+  // ÖNCE KAYIT (Hafıza için bu şart şekerim)
+  if (!text.startsWith('/')) {
+    const stmt = db.prepare('INSERT INTO messages (user_name, message_text, timestamp) VALUES (?, ?, ?)');
+    stmt.run(ctx.from.first_name, text, Date.now());
+  }
 
   // Soru-Cevap Kısmı
   if ((isMentioned || isPrivate) && !text.startsWith('/')) {
@@ -62,12 +68,6 @@ bot.on('text', async (ctx, next) => {
       console.error("Cevap hatası hayatım:", error);
     }
   }
-
-  // Mesaj Kaydı (Özet için sadece normal metinleri alıyoruz)
-  if (!text.startsWith('/')) {
-    const stmt = db.prepare('INSERT INTO messages (user_name, message_text, timestamp) VALUES (?, ?, ?)');
-    stmt.run(ctx.from.first_name, text, Date.now());
-  }
   
   return next();
 });
@@ -82,17 +82,23 @@ bot.command('ozet', async (ctx) => {
 
     const sohbetGecmisi = rows.map(r => `${r.user_name}: ${r.message_text}`).join('\n');
 
+    // İstediğin o spesifik tutum analizi talimatı burada şekerim:
     const summaryPrompt = `
-      Aşağıdaki konuşmaları analiz et ve gereksiz kalabalığı ayıklayarak özünü çıkar şekerim.
+      Aşağıdaki sohbet geçmişini analiz et tatlım.
+      
+      Senden iki şey istiyorum cicim:
+      1. Genel Durum: Grubun bugünkü ana gündemini ve havasını tek bir paragrafta özetle hayatım.
+      2. Kim Ne Yaptı?: Konuşan her bir kişiyi ayrı ayrı ele al. O kişinin mesajlarının listesini verme! Bunun yerine o kişinin bugünkü genel tutumunu, neyin peşinde olduğunu veya ana odağını tek bir cümleyle çıkar cicim. (Örn: "Zafer: Bugün daha çok teknik hatalarla boğuştu ve çözüm arayışındaydı.")
       
       Format:
-      1. Genel Durum: (Gruptaki ana gündemi tek bir paragrafta özetle tatlım)
-      2. Kim Ne Dedi?: (Üyelerin ne konuştuğunu kısa maddelerle belirt cicim)
-      
-      Cevabın en sonuna vıcık vıcık bir hitap eklemeyi unutma hayatım.
-      
+      **Genel Durum:** [Özet buraya]
+      **Kişisel Analizler:**
+      - [Kişi Adı]: [Tek cümlelik tutum analizi]
+
       Konuşmalar:
       ${sohbetGecmisi}
+
+      Unutma şekerim, cevabın en sonu vıcık vıcık bitmeli!
     `;
 
     const result = await model.generateContent(summaryPrompt);
