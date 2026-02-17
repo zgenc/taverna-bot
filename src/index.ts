@@ -45,13 +45,10 @@ bot.on('text', async (ctx, next) => {
   const text = ctx.message.text;
   const isPrivate = ctx.chat.type === 'private';
   const isMentioned = text.includes(`@${botUsername}`);
-  
-  // DAHA GARANTİ REPLY KONTROLÜ:
-  // Mesaj bir reply mı? Ve o reply'ın hedefindeki kişi bizim bot mu?
   const replyToMessage = ctx.message.reply_to_message;
   const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUsername;
 
-  // ÖNCE KAYIT (Burası aksamasın tatlım)
+  // ÖNCE KAYIT (Hafıza dolmaya devam etsin cicim)
   if (!text.startsWith('/')) {
     const stmt = db.prepare('INSERT INTO messages (user_name, message_text, timestamp) VALUES (?, ?, ?)');
     stmt.run(ctx.from.first_name, text, Date.now());
@@ -60,10 +57,34 @@ bot.on('text', async (ctx, next) => {
   // Soru-Cevap Tetikleyicisi
   if ((isMentioned || isPrivate || isReplyToBot) && !text.startsWith('/')) {
     try {
-      // Kotan dolduysa burası hata basar şekerim, logları kontrol etmeyi unutma tatlım
-      const userQuery = text.replace(`@${botUsername}`, '').trim();
+      // Senin yazdığın mesajdan botun adını temizliyoruz tatlım
+      let userQuery = text.replace(`@${botUsername}`, '').trim();
       
-      const chatPrompt = `${PROMPT}\n\nSoru: ${userQuery}\nCevap:`;
+      let finalPrompt = "";
+
+      // DURUM ANALİZİ: Eğer bir mesajı yanıtlayarak bota bir şey sorduysan şekerim
+      if (replyToMessage && 'text' in replyToMessage) {
+        const originalText = replyToMessage.text;
+        const originalAuthor = replyToMessage.from?.first_name || "Biri";
+
+        if (userQuery === "") {
+            // Sadece botu etiketleyip bıraktıysan tatlım
+            finalPrompt = `Şu mesajı kısaca yorumla veya açıkla şekerim: "${originalAuthor}: ${originalText}"`;
+        } else {
+            // Hem reply atıp hem de soru sorduysan (İstediğin tam olarak bu cicim)
+            finalPrompt = `Sana bir mesajı yanıtlayarak soru soruluyor tatlım.\n\nYanıtlanan mesaj: "${originalAuthor}: ${originalText}"\n\nKullanıcının sorusu: ${userQuery}`;
+        }
+      } else {
+        // Normal mention veya DM ise hayatım
+        finalPrompt = userQuery;
+      }
+
+      // Eğer hala bomboşsa (mesela sadece @bot_adi yazılmış ve reply yoksa)
+      if (!finalPrompt || finalPrompt.trim() === "") {
+        return await ctx.reply("Açıklamam için bir metin veya ifade belirtmelisin, canım.");
+      }
+
+      const chatPrompt = `${PROMPT}\n\nİçerik: ${finalPrompt}\nCevap:`;
 
       const result = await model.generateContent(chatPrompt);
       const responseText = result.response.text();
@@ -73,7 +94,6 @@ bot.on('text', async (ctx, next) => {
       });
     } catch (error) {
       console.error("Cevap hatası hayatım:", error);
-      // Eğer kota hatası (429) alıyorsan buraya bir uyarı ekleyebilirsin cicim
     }
   }
   
