@@ -1,23 +1,19 @@
 import { Telegraf } from 'telegraf';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN || '');
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// Model ayarları şekerim (Kotan dolmasın diye 1.5-flash yaptım hayatım)
-const model = genAI.getGenerativeModel({ 
-  model: "gemini-2.5-flash", 
-  generationConfig: {
-    temperature: 0.3, 
-  }
+// DeepSeek Bağlantısı
+const openai = new OpenAI({
+  baseURL: 'https://api.deepseek.com',
+  apiKey: process.env.DEEPSEEK_API_KEY || ''
 });
 
-// ZEKİCE ÇÖZÜM: Tablo adını 'messages_v2' yaptık cicim!
-// Eski bozuk tablo ne yaparsa yapsın, biz artık bu yeni ve temiz tabloyu kullanacağız.
+// Veritabanı (Mevcut yapıyı koruyoruz)
 const db = new Database('chat.db');
 db.exec(`
   CREATE TABLE IF NOT EXISTS messages_v2 (
@@ -35,11 +31,13 @@ bot.telegram.getMe().then((info) => {
   botUsername = info.username;
 });
 
-// Kişilik Talimatı tatlım
-const PROMPT = `Sen bilgi odaklı, net ve öz bir asistansın. 
-Gereksiz gevezelikten kaçın şekerim. 
-Sana verilen mesaj bağlamındaki (context) isimleri ve yanıtlanan mesajları mutlaka dikkate al.
-Cevabın en sonunu mutlaka "canım", "cicim", "tatlım" veya "hayatım" gibi vıcık vıcık bir kelimeyle bitir cicim.`;
+// YENİ SİSTEM TALİMATI: Kısa, net, normal konuşma.
+const SYSTEM_PROMPT = `Sen yardımcı bir asistansın. 
+Kurallar:
+1. Yanıtların her zaman çok kısa ve net olsun.
+2. Doğal bir konuşma dili kullan ama gereksiz nezaket sözcüklerinden (canım, cicim vb.) kaçın.
+3. Uzun açıklamalar yapma, direkt sadede gel.
+4. Sana verilen mesaj bağlamındaki (context) isimleri ve yanıtlanan mesajları dikkate al.`;
 
 // 1. Ana Mesaj İşleyici
 bot.on('text', async (ctx, next) => {
@@ -48,7 +46,7 @@ bot.on('text', async (ctx, next) => {
   const isMentioned = text.includes(`@${botUsername}`);
   const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUsername;
 
-  // ÖNCE KAYIT (Artık messages_v2 tablosuna yazıyoruz hayatım)
+  // KAYIT
   if (!text.startsWith('/')) {
     const stmt = db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)');
     stmt.run(messageId, ctx.from.first_name, text, replyToMessage?.message_id || null, Date.now());
@@ -60,67 +58,85 @@ bot.on('text', async (ctx, next) => {
       let userQuery = text.replace(`@${botUsername}`, '').trim();
       let contextInfo = "";
 
-      // REPLY BAĞLAMI OLUŞTURMA (Hafıza burası cicim)
+      // BAĞLAM OLUŞTURMA (Temiz dil)
       if (replyToMessage && 'text' in replyToMessage) {
         const originalText = replyToMessage.text;
         const originalAuthor = replyToMessage.from?.first_name || "Biri";
         
-        // Eğer bot kendi mesajına atılan reply'ı inceliyorsa şekerim
         if (replyToMessage.from?.username === botUsername) {
-            contextInfo = `Sen az önce şunu demiştin tatlım: "${originalText}". Kullanıcı bu lafına karşılık şunu soruyor:`;
+            contextInfo = `Senin önceki mesajın: "${originalText}". Kullanıcı buna istinaden soruyor:`;
         } else {
-            contextInfo = `${originalAuthor} adlı kullanıcının şu mesajına yanıt veriliyor: "${originalText}". Soru şu:`;
+            contextInfo = `${originalAuthor} kişisinin mesajına yanıt veriliyor: "${originalText}". Soru:`;
         }
       }
 
-      const chatPrompt = `${PROMPT}\n\nBağlam: ${contextInfo}\nKullanıcı: ${ctx.from.first_name}\nSoru: ${userQuery || "Bu mesajı yorumla"}\nCevap:`;
+      // DeepSeek'e Gönderilecek Mesaj
+      const finalUserMessage = `Bağlam: ${contextInfo}\nKullanıcı: ${ctx.from.first_name}\nSoru: ${userQuery || "Bu mesajı yorumla"}`;
 
-      const result = await model.generateContent(chatPrompt);
-      const responseText = result.response.text();
+      const completion = await openai.chat.completions.create({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: finalUserMessage }
+        ],
+        model: "deepseek-chat", 
+        temperature: 0.7, 
+      });
+
+      const responseText = completion.choices[0].message.content || "Bir hata oluştu.";
 
       // BOTUN CEVABINI GÖNDER
       const sent = await ctx.reply(responseText, { 
         reply_parameters: { message_id: messageId } 
       });
 
-      // BOTUN KENDİ CEVABINI DA KAYDET (Tabii ki messages_v2 tablosuna şekerim)
+      // BOTUN CEVABINI KAYDET
       const stmtBot = db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)');
       stmtBot.run(sent.message_id, botUsername, responseText, messageId, Date.now());
 
     } catch (error) {
-      console.error("Cevap hatası hayatım:", error);
+      console.error("DeepSeek hatası:", error);
+      ctx.reply("Şu an cevap veremiyorum, sonra tekrar dene.");
     }
   }
   
   return next();
 });
 
-// 2. Özet Komutu
+// 2. Özet Komutu (Kısa ve öz)
 bot.command('ozet', async (ctx) => {
   try {
     const birGunOnce = Date.now() - (24 * 60 * 60 * 1000);
-    // Özet çekerken de v2'den alıyoruz cicim
     const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 WHERE timestamp > ?').all(birGunOnce) as any[];
 
-    if (rows.length === 0) return ctx.reply("Özetlenecek bir şey yok hayatım.");
+    if (rows.length === 0) return ctx.reply("Özetlenecek mesaj yok.");
 
     const sohbetGecmisi = rows.map(r => `${r.user_name}: ${r.message_text}`).join('\n');
 
     const summaryPrompt = `
-      Şu konuşmaları analiz et şekerim:
-      1. Genel Durum: Gündemi tek paragrafta özetle tatlım.
-      2. Kişisel Analiz: Her konuşan kişinin o günkü tavrını tek cümleyle açıkla cicim.
+      Şu konuşmaları analiz et.
+      1. Genel Durum: Gündemi tek cümleyle özetle.
+      2. Kişisel Analiz: Konuşan kişilerin neye odaklandığını kişi başı en fazla bir cümleyle anlat.
+      
+      Çok kısa ve öz tut. Gereksiz detay verme.
       
       Konuşmalar:
       ${sohbetGecmisi}
     `;
 
-    const result = await model.generateContent(summaryPrompt);
-    ctx.reply(result.response.text());
+    const completion = await openai.chat.completions.create({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: summaryPrompt }
+        ],
+        model: "deepseek-chat",
+        temperature: 0.5,
+      });
+
+    ctx.reply(completion.choices[0].message.content || "Özet çıkarılamadı.");
   } catch (error) {
-    console.error("Özet hatası şekerim:", error);
-    ctx.reply("Kafam karıştı tatlım.");
+    console.error("Özet hatası:", error);
+    ctx.reply("Bir hata oluştu.");
   }
 });
 
-bot.launch().then(() => console.log("🚀 Tavernanın vıcık vıcık hafızalı bilgesi hazır hayatım!"));
+bot.launch().then(() => console.log("🚀 Kısa ve öz konuşan bot hazır!"));
