@@ -8,18 +8,19 @@ dotenv.config();
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN || '');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// Model ayarları şekerim
+// Model ayarları şekerim (Kotan dolmasın diye 1.5-flash yaptım hayatım)
 const model = genAI.getGenerativeModel({ 
-  model: "gemini-2.5-flash", // En kararlı ve kotası geniş olan bu hayatım
+  model: "gemini-2.5-flash", 
   generationConfig: {
     temperature: 0.3, 
   }
 });
 
-// Veritabanını detaylı hafıza için güncelledik cicim
+// ZEKİCE ÇÖZÜM: Tablo adını 'messages_v2' yaptık cicim!
+// Eski bozuk tablo ne yaparsa yapsın, biz artık bu yeni ve temiz tabloyu kullanacağız.
 const db = new Database('chat.db');
 db.exec(`
-  CREATE TABLE IF NOT EXISTS messages (
+  CREATE TABLE IF NOT EXISTS messages_v2 (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id INTEGER,
     user_name TEXT,
@@ -47,9 +48,9 @@ bot.on('text', async (ctx, next) => {
   const isMentioned = text.includes(`@${botUsername}`);
   const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUsername;
 
-  // ÖNCE KAYIT (Detaylı kaydediyoruz ki kim kime ne demiş bilelim hayatım)
+  // ÖNCE KAYIT (Artık messages_v2 tablosuna yazıyoruz hayatım)
   if (!text.startsWith('/')) {
-    const stmt = db.prepare('INSERT INTO messages (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)');
+    const stmt = db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)');
     stmt.run(messageId, ctx.from.first_name, text, replyToMessage?.message_id || null, Date.now());
   }
 
@@ -82,8 +83,8 @@ bot.on('text', async (ctx, next) => {
         reply_parameters: { message_id: messageId } 
       });
 
-      // BOTUN KENDİ CEVABINI DA KAYDET (Gelecekte hatırlasın diye şekerim)
-      const stmtBot = db.prepare('INSERT INTO messages (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)');
+      // BOTUN KENDİ CEVABINI DA KAYDET (Tabii ki messages_v2 tablosuna şekerim)
+      const stmtBot = db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)');
       stmtBot.run(sent.message_id, botUsername, responseText, messageId, Date.now());
 
     } catch (error) {
@@ -98,7 +99,8 @@ bot.on('text', async (ctx, next) => {
 bot.command('ozet', async (ctx) => {
   try {
     const birGunOnce = Date.now() - (24 * 60 * 60 * 1000);
-    const rows = db.prepare('SELECT user_name, message_text FROM messages WHERE timestamp > ?').all(birGunOnce) as any[];
+    // Özet çekerken de v2'den alıyoruz cicim
+    const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 WHERE timestamp > ?').all(birGunOnce) as any[];
 
     if (rows.length === 0) return ctx.reply("Özetlenecek bir şey yok hayatım.");
 
