@@ -11,7 +11,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // Model ayarları (Güvenlik filtrelerini kapattık ki argo konuşabilsin)
 const model = genAI.getGenerativeModel({ 
-  model: "models/gemini-1.5-flash",
+  model: "gemini-2.5-flash",
   safetySettings: [
     { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
     { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
