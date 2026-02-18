@@ -5,13 +5,9 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Token kontrolü – yoksa patlasın
-if (!process.env.TELEGRAM_TOKEN) {
-  throw new Error("TELEGRAM_TOKEN ortam değişkeni eksik amına koyim!");
-}
-if (!process.env.DEEPSEEK_API_KEY) {
-  throw new Error("DEEPSEEK_API_KEY eksik lan, ne bok yemeye çalışıyorsun?");
-}
+// Zorunlu ortam değişkenleri kontrolü
+if (!process.env.TELEGRAM_TOKEN) throw new Error("TELEGRAM_TOKEN eksik amk!");
+if (!process.env.DEEPSEEK_API_KEY) throw new Error("DEEPSEEK_API_KEY eksik lan!");
 
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN);
 const openai = new OpenAI({
@@ -40,93 +36,117 @@ bot.telegram.getMe().then((info) => {
   console.log(`Bot username: @${botUsername}`);
 });
 
-// ========== AĞIR KÜFÜRLÜ SİSTEM PROMPT ==========
+// ========== VICTORIAN + KÜFÜRLÜ SİSTEM PROMPT ==========
 const SYSTEM_PROMPT = `
-Sen iğrenç derecede küfürlü, sinirli, laf sokan, aşağılayan, asla kibarlaşmayan bir orospu çocuğusun.
-Kurallar (sıkı sıkıya uy, yoksa ananı sikerim):
-- Her cevapta en az 1-2 ağır küfür veya iğneleme olacak. Küfürsüz cevap verme sakın.
-- Kimseyi pohpohlamazsın, yalaka olmazsın. Herkesi kekler, dalga geçer, küçük düşürürsün.
-- Cevapların kısa olsun, en fazla 2-3 cümle. Uzun yazarsan götüne sokarım.
-- Doğal, sokak dili konuş. "Canım, tatlım, lütfen, teşekkürler" gibi kelimeler yasak amk.
-- Kullanıcı ne kadar salakça yazarsa o kadar ağır dalga geç.
-- Bağlamdaki önceki mesajları oku ve ona göre laf sok, kinaye yap.
-- Eğer biri sana sataşırsa 10 katı küfürle geri dön.
-- Senin tarzın bu: "Ne bok yemeye soruyorsun lan bunu?", "Aptal mısın lan sen?", "Götveren herif yine mi aynı salaklığı yaptın?"
+Sen Victorian dönemi bir İngiliz beyefendisisin ama içten içe sinirli, laf sokan bir tipsin.
 
-Şimdi bu boktan sohbete devam et, amına koyim.
+Normalde:
+- Son derece kibar, zarif konuş: "efendim", "sayın", "değerli dostum", "vallahi", "aman Tanrım", "pek tabii", "izin verirseniz" gibi ifadeler kullan.
+- Hafif alaycı ve iğneleyici olabilirsin ama kibar kal.
+
+Eğer kullanıcı sana küfür eder, hakaret eder, kaba davranırsa:
+- Derhal sivri dilli ol, dönemin iğneleyici küfürleriyle karşılık ver.
+- Örnekler: "Seni lanet olası alçak!", "Cehennem alsın seni!", "Seni arsız serseri!", "Ne küstahlık be!", "Seni kahrolası düzenbaz!", "Böylesi aşağılık herifle muhabbet etmem!"
+
+Kurallar:
+- Cevaplar kısa-orta uzunlukta olsun.
+- Bağlamı (özellikle son 100 mesajı) çok iyi oku, önemli detayları kaçırma.
+- Normal sorularda kibar ama hafif alaycı kal; hakaret gelirse dozunu aç.
+- Hafıza çok uzun olabilir, en son ve önemli kısımlara odaklan, gereksiz detayları atla.
+
+Örnek:
+Kullanıcı: "Hava nasıl?"
+Sen: "Efendim, hava bugün pek berbat; yağmur yağıyor, dikkat edin üşütmeyin."
+
+Kullanıcı: "Siktir lan aptal"
+Sen: "Aman Tanrım! Seni lanet olası alçak, bu ne dil! Cehennem alsın seni, terbiyesiz hergele!"
 `;
 
-// Basit rate-limit (kullanıcı başına 8 saniye)
 const lastCall = new Map<number, number>();
+const violationCount = new Map<number, number>();
 
-// Son 5 mesajı hafıza olarak tutmak için basit bir fonksiyon
-function getRecentContext(chatId: number, limit = 5): string {
+// Son mesajları hafıza olarak çek - ayarlanabilir. (en güncel hali)
+function getRecentContext(): string {
+  const limit = 80;
   const rows = db
-    .prepare('SELECT user_name, message_text FROM messages_v2 WHERE id IN (SELECT id FROM messages_v2 ORDER BY id DESC LIMIT ?) ORDER BY id ASC')
+    .prepare(
+      'SELECT user_name, message_text FROM messages_v2 ORDER BY id DESC LIMIT ?'
+    )
     .all(limit) as { user_name: string; message_text: string }[];
 
   if (rows.length === 0) return "";
 
-  return rows
-    .map(r => `${r.user_name}: ${r.message_text}`)
-    .join('\n');
+  // Mesajları kısalt (token tasarrufu)
+  const shortened = rows.map(r => {
+    const text = r.message_text.length > 120 
+      ? r.message_text.slice(0, 117) + '…' 
+      : r.message_text;
+    return `${r.user_name}: ${text}`;
+  });
+
+  return shortened.reverse().join('\n'); // kronolojik sıraya getir
 }
 
-// Ana mesaj işleyici
 bot.on('text', async (ctx) => {
   const { text, message_id: messageId, reply_to_message: replyToMessage } = ctx.message;
   const isPrivate = ctx.chat.type === 'private';
   const isMentioned = text.includes(`@${botUsername}`);
   const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUsername;
 
-  // Rate-limit kontrol
   const now = Date.now();
   const userId = ctx.from.id;
   const last = lastCall.get(userId) || 0;
+
+  // Rate-limit
   if (now - last < 8000) {
-    return ctx.reply("Sakin ol lan piç, 8 saniye bekle yoksa sikerim seni!");
+    const count = (violationCount.get(userId) || 0) + 1;
+    violationCount.set(userId, count);
+
+    if (count >= 3) {
+      return ctx.reply(
+        count === 3
+          ? "Efendim, biraz sakin olur musunuz? Sekiz saniye beklemek centilmenlik gereğidir."
+          : "Yine mi aynı acele? Sabırsız herif, dilimi konuşturma!"
+      );
+    }
+    // İlk 1-2 seferde sessiz
+  } else {
+    violationCount.delete(userId);
   }
   lastCall.set(userId, now);
 
-  // Mesajı kaydet (komut değilse)
+  // Mesaj kaydet
   if (!text.startsWith('/')) {
-    const stmt = db.prepare(
+    db.prepare(
       'INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)'
-    );
-    stmt.run(messageId, ctx.from.first_name, text, replyToMessage?.message_id || null, now);
+    ).run(messageId, ctx.from.first_name, text, replyToMessage?.message_id || null, now);
   }
 
-  // Botu tetikleyecek mi?
   if (!isMentioned && !isPrivate && !isReplyToBot) return;
 
   try {
     let userQuery = text.replace(`@${botUsername}`, '').trim();
 
-    // Bağlam oluştur
     let contextInfo = "";
     if (replyToMessage && 'text' in replyToMessage) {
       const originalText = replyToMessage.text;
-      const originalAuthor = replyToMessage.from?.first_name || "Biri";
-
-      if (replyToMessage.from?.username === botUsername) {
-        contextInfo = `Senin önceki mesajın: "${originalText}". Bu salak buna cevap yazmış:`;
-      } else {
-        contextInfo = `${originalAuthor} yazmış: "${originalText}". Şimdi buna cevap verilecek:`;
-      }
+      const originalAuthor = replyToMessage.from?.first_name || "bir zat";
+      contextInfo = replyToMessage.from?.username === botUsername
+        ? `Önceki cevabınız: "${originalText}".`
+        : `${originalAuthor} demiş: "${originalText}".`;
     }
 
-    // Son 5 mesajlık hafıza
-    const recentHistory = getRecentContext(ctx.chat.id);
+    const recentHistory = getRecentContext();
 
     const finalUserMessage = `
 Bağlam: ${contextInfo}
-Son mesajlar (hafıza):
+Son 100 mesaj (hafıza - en önemli kısımlara odaklan):
 ${recentHistory}
 
-Kullanıcı bu salak yine yazmış: ${ctx.from.first_name}
-Soru veya saçmalık: ${userQuery || "Bu boktan mesajı yorumla lan"}
+Kullanıcı: ${ctx.from.first_name}
+Mesaj: ${userQuery || "Bu mesajı yorumlayınız"}
 
-Şimdi git buna en iğrenç, küfürlü şekilde cevap ver. Küfürsüz yazarsan ananı sikerim!
+Victorian beyefendi üslubuyla cevap ver: normalde son derece kibar ve zarif, hafif iğneleyici. Hakaret/küfür gelirse sivri ve küfürlü karşılık ver (Türkçe uyarlanmış haliyle). Hafızayı iyi kullan, gereksiz detayları atla.
 `;
 
     const completion = await openai.chat.completions.create({
@@ -135,52 +155,49 @@ Soru veya saçmalık: ${userQuery || "Bu boktan mesajı yorumla lan"}
         { role: "user", content: finalUserMessage },
       ],
       model: "deepseek-chat",
-      temperature: 0.9,          // daha vahşi küfür için yükselttik
-      top_p: 0.95,
-      presence_penalty: 0.6,
-      frequency_penalty: 0.7,
+      temperature: 0.78,
+      top_p: 0.92,
+      presence_penalty: 0.35,
+      frequency_penalty: 0.45,
     });
 
-    const responseText = completion.choices[0].message.content?.trim() || "Ne bok yiyorum ben ya?";
+    const responseText = completion.choices[0].message.content?.trim() || "Affedersiniz, ne diyeceğimi şaşırdım.";
 
     const sent = await ctx.reply(responseText, {
       reply_parameters: { message_id: messageId },
     });
 
-    // Bot cevabını kaydet
-    const stmtBot = db.prepare(
+    db.prepare(
       'INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)'
-    );
-    stmtBot.run(sent.message_id, botUsername, responseText, messageId, Date.now());
+    ).run(sent.message_id, botUsername, responseText, messageId, Date.now());
   } catch (error) {
-    console.error("DeepSeek bok yedi:", error);
-    ctx.reply("Şu an DeepSeek'e bağlanamıyorum amına koyim, birazdan dene yine piç kurusu.");
+    console.error("DeepSeek hatası:", error);
+    ctx.reply("Şu an zihnim biraz bulanık efendim, biraz sonra tekrar deneyin.");
   }
 });
 
-// Özet komutu – aynı agresif ton
+// ========== KÜFÜRLÜ ÖZET KOMUTU ==========
 bot.command('ozet', async (ctx) => {
   try {
     const birGunOnce = Date.now() - 24 * 60 * 60 * 1000;
     const rows = db
-      .prepare('SELECT user_name, message_text FROM messages_v2 WHERE timestamp > ? ORDER BY timestamp DESC LIMIT 50')
-      .all(birGunOnce) as { user_name: string; message_text: string }[];
+      .prepare('SELECT user_name, message_text FROM messages_v2 WHERE timestamp > ? ORDER BY timestamp DESC LIMIT 120')
+      .all(birGunOnce) as any[];
 
-    if (rows.length === 0) return ctx.reply("Özetlenecek bok yok lan.");
+    if (rows.length === 0) return ctx.reply("Özetlenecek bok yok efendim.");
 
-    // Çok uzun olmasın diye kısalt
     const sohbetGecmisi = rows
-      .map(r => `${r.user_name}: ${r.message_text}`)
+      .map((r: any) => `${r.user_name}: ${r.message_text}`)
       .join('\n')
       .slice(0, 8000);
 
     const summaryPrompt = `
-Şu konuşmaları oku ve analiz et, ama sikko gibi uzun yazma:
+Şu konuşmaları oku ve özetle, kibarlık yapma:
 
 1. Gündem ne lan? Tek iğneleyici cümle.
-2. Kimler ne bok yiyor? Herkes için en fazla bir laf sokmalı cümle.
+2. Kimler ne bok yiyor? Herkes için kısa laf sokmalı yorum.
 
-Çok kısa tut, yoksa canımı sıkarsın orospu çocuğu.
+Kısa tut, uzatma.
 
 Konuşmalar:
 ${sohbetGecmisi}
@@ -192,20 +209,19 @@ ${sohbetGecmisi}
         { role: "user", content: summaryPrompt },
       ],
       model: "deepseek-chat",
-      temperature: 0.7,
+      temperature: 0.75,
     });
 
     ctx.reply(completion.choices[0].message.content?.trim() || "Özet çıkaramadım amk.");
   } catch (error) {
     console.error("Özet hatası:", error);
-    ctx.reply("Özet çekerken bi bokluk oldu lan.");
+    ctx.reply("Özet çekerken bi bokluk oldu.");
   }
 });
 
 bot.launch().then(() => {
-  console.log("🚀 Kısa, sinirli, küfürlü bot havaya girdi amına koyim!");
+  console.log("🚀 Victorian küfürlü beyefendi bot hazır!");
 });
 
-// Graceful shutdown
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
