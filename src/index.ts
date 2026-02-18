@@ -291,6 +291,7 @@ bot.on('text', async (ctx) => {
   const userName = ctx.from?.first_name || 'Anonim';
   const replyToId = ctx.message.reply_to_message?.message_id ?? null;
   const replyToUser = ctx.message.reply_to_message?.from?.username;
+  const replyToMessage = ctx.message?.reply_to_message;
 
   const now = Date.now();
   const userId = ctx.from?.id ?? 0;
