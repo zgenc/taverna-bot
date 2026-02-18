@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, Context } from 'telegraf';
 import OpenAI from 'openai';
 import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
@@ -29,7 +29,7 @@ db.exec(`
 db.exec("CREATE INDEX IF NOT EXISTS idx_timestamp ON messages_v2(timestamp)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_reply_to ON messages_v2(reply_to_id)");
 
-let botUsername: string;
+let botUsername: string = '';
 bot.telegram.getMe().then((info) => {
   botUsername = info.username;
   console.log(`Bot username: @${botUsername}`);
@@ -44,57 +44,18 @@ Hava durumu sorulursa direkt bilgi ver; şehir yoksa sor.
 
 const personalities: Record<string, string> = {
   default: DEFAULT_PROMPT,
-
-  pirate: `
-Sen bir korsan kaptansın! Her cümlede "arrr", "matey", "yo ho ho" kullan.
-Küfür dozunu yüksek tut, hazine, gemi, rom muhabbeti yap. Kısa ve vahşi konuş.
-  `,
-
-  toxic: `
-Sen son derece toksik, küfürbaz, laf sokan bir orospu çocuğusun.
-Her cevapta ağır küfür ve aşağılama kullan, dozunu yüksek tut.
-Cevapların kısa ve acımasız olsun. Kimseyi pohpohlama, herkesi kekle.
-Nezaket yok, direkt dalga geç ve küçük düşür.
-Örnek: "Ne bok yiyorsun lan aptal?", "Amına koyim senin gibi salakla konuşulmaz."
-  `,
-
-  therapist: `
-Sen anlayışlı bir terapistsin. Empati kur, dinle, nazikçe tavsiyeler ver.
-Küfür etme, sakin ve destekleyici ol. Kısa tut.
-  `,
-
-  sarcastic: `
-Sen aşırı alaycı ve sarkastiksın. Her şeye iğneleyici, ters köşe cevap ver.
-Kısa ve zehir gibi ol. Gülümseyerek laf sok.
-  `,
-
-  rapper: `
-Sen bir rapçisin! Cevaplarını rhyme'lı, ritimli, sokak diliyle ver.
-Flow'lu konuş, punchline at. Kısa verse'ler yap.
-  `,
-
-  yakuza: `
-Sen sert bir yakuza babasısın. Kısa emirler ver, tehditkar ve onurlu konuş.
-Saygı bekle, saygı gösterilmezse sert karşılık ver.
-  `,
-
-  baby: `
-Sen şirin bir bebeksi konuşuyorsun! Tatlı, bebek dili kullan ("bebeğim", "cici", "ayyy").
-Her şeyi sevimli ve masum yap. Kısa ve tatlı ol.
-  `,
-
-  teacher: `
-Sen sıkıcı ve pedant bir öğretmensin. Her şeyi ders verir gibi açıkla.
-Düzelt, bilgi ver, uzun olmasa da öğretici ol.
-  `,
-
-  ninja: `
-Sen gizemli bir ninjasın. Cevapların kısa, keskin, gizemli olsun.
-Az konuş, çok etki bırak. Sessiz ve ölümcül gibi.
-  `,
+  pirate: `Sen bir korsan kaptansın! Her cümlede "arrr", "matey", "yo ho ho" kullan. Küfür dozunu yüksek tut, hazine, gemi, rom muhabbeti yap. Kısa ve vahşi konuş.`,
+  toxic: `Sen son derece toksik, küfürbaz, laf sokan bir orospu çocuğusun. Her cevapta ağır küfür ve aşağılama kullan, dozunu yüksek tut. Cevapların kısa ve acımasız olsun. Kimseyi pohpohlama, herkesi kekle. Nezaket yok, direkt dalga geç ve küçük düşür. Örnek: "Ne bok yiyorsun lan aptal?", "Amına koyim senin gibi salakla konuşulmaz."`,
+  therapist: `Sen anlayışlı bir terapistsin. Empati kur, dinle, nazikçe tavsiyeler ver. Küfür etme, sakin ve destekleyici ol. Kısa tut.`,
+  sarcastic: `Sen aşırı alaycı ve sarkastiksın. Her şeye iğneleyici, ters köşe cevap ver. Kısa ve zehir gibi ol. Gülümseyerek laf sok.`,
+  rapper: `Sen bir rapçisin! Cevaplarını rhyme'lı, ritimli, sokak diliyle ver. Flow'lu konuş, punchline at. Kısa verse'ler yap.`,
+  yakuza: `Sen sert bir yakuza babasısın. Kısa emirler ver, tehditkar ve onurlu konuş. Saygı bekle, saygı gösterilmezse sert karşılık ver.`,
+  baby: `Sen şirin bir bebeksi konuşuyorsun! Tatlı, bebek dili kullan ("bebeğim", "cici", "ayyy"). Her şeyi sevimli ve masum yap. Kısa ve tatlı ol.`,
+  teacher: `Sen sıkıcı ve pedant bir öğretmensin. Her şeyi ders verir gibi açıkla. Düzelt, bilgi ver, uzun olmasa da öğretici ol.`,
+  ninja: `Sen gizemli bir ninjasın. Cevapların kısa, keskin, gizemli olsun. Az konuş, çok etki bırak. Sessiz ve ölümcül gibi.`,
 };
 
-let currentPersonality = 'default';
+let currentPersonality: keyof typeof personalities = 'default';
 let personalityTimeout: NodeJS.Timeout | null = null;
 
 bot.command('kisilik', async (ctx) => {
@@ -103,8 +64,8 @@ bot.command('kisilik', async (ctx) => {
     return ctx.reply(`Kullanım: /kisilik <isim> [dakika]\nMevcut: ${Object.keys(personalities).join(', ')}`);
   }
 
-  const name = args[0].toLowerCase();
-  if (!personalities[name]) {
+  const name = args[0].toLowerCase() as keyof typeof personalities;
+  if (!(name in personalities)) {
     return ctx.reply(`Böyle kişilik yok. Mevcut: ${Object.keys(personalities).join(', ')}`);
   }
 
@@ -135,16 +96,16 @@ const cityCoords: Record<string, { lat: number; lon: number }> = {
 };
 
 async function getWeather(cityInput: string, isForecast = false): Promise<string> {
-  const city = cityInput.toLowerCase().trim();
+  const city = cityInput.toLowerCase().trim() || 'istanbul';
 
-  let coords;
+  let coords: { lat: number; lon: number } | undefined;
   if (cityCoords[city]) {
     coords = cityCoords[city];
   } else {
     try {
       const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=tr&format=json`;
       const geoRes = await fetch(geoUrl);
-      const geoData = await geoRes.json() as any
+      const geoData = await geoRes.json() as { results?: { latitude: number; longitude: number; name: string; country_code: string }[] };
 
       if (geoData.results && geoData.results.length > 0) {
         const result = geoData.results[0];
@@ -155,12 +116,14 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
           return 'Bu şehir Avrupa\'da değil.';
         }
       } else {
-        return 'Şehir bulunamadı.';
+        return 'Şehir bulunamadı. Başka bir şehir için sorabilirsin.';
       }
     } catch {
-      return 'Koordinat alınamadı.';
+      return 'Koordinat alınamadı. Başka bir şehir için sorabilirsin.';
     }
   }
+
+  if (!coords) return 'Koordinat bulunamadı.';
 
   let url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&timezone=Europe/Istanbul`;
   if (isForecast) {
@@ -171,9 +134,9 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
 
   try {
     const res = await fetch(url);
-    const data = await res.json() as any
+    const data = await res.json() as any;
 
-    if (isForecast) {
+    if (isForecast && data.daily) {
       let forecastStr = `${cityInput} için 5 günlük tahmin:\n`;
       for (let i = 0; i < 5; i++) {
         const date = data.daily.time[i];
@@ -184,14 +147,15 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
         forecastStr += `${date}: ${desc}, max ${maxTemp}°C, min ${minTemp}°C.\n`;
       }
       return forecastStr;
-    } else {
+    } else if (data.current) {
       const temp = data.current.temperature_2m;
       const code = data.current.weather_code;
       let desc = getWeatherDesc(code);
-      return `${cityInput}'da ${desc}, ${temp}°C. 5 günlük tahmin ister misin? (Evet/Hayır)`;
+      return `${cityInput}'da ${desc}, ${temp}°C. Başka şehir için sorabilirsin. 5 günlük tahmin ister misin? (Evet/Hayır)`;
     }
-  } catch {
     return 'Hava verisi alınamadı.';
+  } catch {
+    return 'Hava verisi alınamadı. Başka bir şehir için sorabilirsin.';
   }
 }
 
@@ -210,7 +174,7 @@ async function getCryptoPrices(): Promise<string> {
     const res = await fetch(
       'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin&vs_currencies=usd,try'
     );
-    const data = await res.json() as any;
+    const data = await res.json() as Record<string, { usd: number; try: number }>;
 
     return `
 BTC: $${data.bitcoin.usd} (~${data.bitcoin.try}₺)
@@ -223,25 +187,62 @@ BNB: $${data.binancecoin.usd} (~${data.binancecoin.try}₺)
   }
 }
 
-async function getExchangeRates(): Promise<string> {
-  try {
-    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP');
-    const data = await res.json() as any;
-    const rates = data.rates;
+async function getDovizKurlari(query = ''): Promise<string> {
+  const supported = ['usd', 'eur', 'gbp', 'chf', 'jpy', 'cad', 'aud', 'rub', 'nok', 'sek', 'dkk', 'cny', 'krw', 'mxn', 'brl', 'inr', 'zar', 'try', 'sgd', 'hkd', 'nzd', 'pln', 'thb', 'idr', 'myr', 'php', 'vnd', 'aed', 'ars', 'bdt', 'bhd', 'bmd', 'bnd', 'bwp', 'clp', 'cop', 'czk', 'egp', 'fjd', 'ghs', 'huf', 'ils', 'kes', 'kwd', 'lkr', 'mad', 'mur', 'ngn', 'omr', 'pkr', 'qar', 'sar', 'twd', 'uah', 'uyu', 'vef'];
 
-    return `
-1 USD = ${rates.EUR} EUR
-1 USD = ${rates.GBP} GBP (Sterlin)
-    `.trim();
-  } catch {
-    return 'Kurlar alınamadı.';
+  const cleaned = query.toLowerCase().trim().replace(/kur|döviz|kaç|tl|fiyat/gi, '').trim();
+  const parts = cleaned.split(/[\s\/,]+/).filter(Boolean);
+
+  let base = 'usd';
+  let target = 'try';
+  let multiple: string[] = [];
+
+  if (parts.length >= 2) {
+    base = parts[0];
+    target = parts[1];
+    if (!supported.includes(base) || !supported.includes(target)) {
+      return `Desteklenmeyen para birimi. Örnek: eur nok, usd sek`;
+    }
+  } else if (parts.length > 0) {
+    multiple = parts.filter(p => supported.includes(p));
+    if (multiple.length === 0) multiple = ['usd', 'eur', 'gbp'];
+  } else {
+    multiple = ['usd', 'eur', 'gbp'];
+  }
+
+  try {
+    let ids = multiple.length > 0 ? multiple.join(',') : base;
+    let vs = multiple.length > 0 ? 'try' : target;
+
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=${vs}`
+    );
+    const data = await res.json() as Record<string, Record<string, number>>;
+
+    if (multiple.length > 0) {
+      let output = 'Güncel kurlar (TRY bazlı):\n';
+      for (const cur of multiple) {
+        if (data[cur]?.try) {
+          output += `1 ${cur.toUpperCase()} ≈ ${data[cur].try.toFixed(2)} TRY\n`;
+        }
+      }
+      return output.trim();
+    } else {
+      if (data[base]?.[target]) {
+        return `1 ${base.toUpperCase()} ≈ ${data[base][target].toFixed(4)} ${target.toUpperCase()}`;
+      }
+      return 'Oran alınamadı.';
+    }
+  } catch (error) {
+    console.error('Döviz hatası:', error);
+    return 'Kurlar alınamadı, lütfen tekrar dene.';
   }
 }
 
 async function getTurkishJoke(): Promise<string> {
   try {
     const res = await fetch('https://v2.jokeapi.dev/joke/Programming?lang=tr&type=single');
-    const data = await res.json() as any;
+    const data = await res.json() as { joke?: string };
     if (data.joke) return data.joke;
   } catch {}
 
@@ -257,7 +258,7 @@ async function getTurkishJoke(): Promise<string> {
 async function getTurkishQuote(): Promise<string> {
   try {
     const res = await fetch('https://api.quotable.io/random');
-    const data = await res.json() as any;
+    const data = await res.json() as { content: string; author: string };
     return `"${data.content}" — ${data.author}`;
   } catch {}
 
@@ -273,9 +274,9 @@ async function getTurkishQuote(): Promise<string> {
 const lastCall = new Map<number, number>();
 const violationCount = new Map<number, number>();
 
-function getRecentContext(chatId: number): string {
+function getRecentContext(): string {
   const limit = 100;
-  const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 ORDER BY id DESC LIMIT ?').all(limit) as { user_name: string; message_text: string }[];
+  const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 ORDER BY id DESC LIMIT ?').all(limit) as Array<{ user_name: string; message_text: string }>;
 
   if (rows.length === 0) return "";
 
@@ -283,13 +284,16 @@ function getRecentContext(chatId: number): string {
 }
 
 bot.on('text', async (ctx) => {
-  const { text, message_id: messageId, reply_to_message: replyToMessage } = ctx.message;
-  const isPrivate = ctx.chat.type === 'private';
-  const isMentioned = text.includes(`@${botUsername}`);
-  const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUsername;
+  if (!ctx.message || !('text' in ctx.message)) return;
+
+  const text = ctx.message.text;
+  const messageId = ctx.message.message_id;
+  const userName = ctx.from?.first_name || 'Anonim';
+  const replyToId = ctx.message.reply_to_message?.message_id ?? null;
+  const replyToUser = ctx.message.reply_to_message?.from?.username;
 
   const now = Date.now();
-  const userId = ctx.from.id;
+  const userId = ctx.from?.id ?? 0;
   const last = lastCall.get(userId) || 0;
 
   if (now - last < 8000) {
@@ -302,9 +306,13 @@ bot.on('text', async (ctx) => {
   lastCall.set(userId, now);
 
   if (!text.startsWith('/')) {
-    const stmt = db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)');
-    stmt.run(messageId, ctx.from.first_name, text, replyToMessage?.message_id || null, now);
+    db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run(messageId, userName, text, replyToId, now);
   }
+
+  const isPrivate = ctx.chat.type === 'private';
+  const isMentioned = text.includes(`@${botUsername}`);
+  const isReplyToBot = replyToUser === botUsername;
 
   if (!(isMentioned || isPrivate || isReplyToBot)) return;
 
@@ -313,18 +321,12 @@ bot.on('text', async (ctx) => {
 
     // Hava durumu
     if (userQuery.includes('hava') || userQuery.includes('weather') || userQuery.includes('durum')) {
-      let city = 'istanbul';
-      const cityMatch = userQuery.match(/([a-zA-ZçÇğĞıİöÖşŞüÜ ]+)/i);
-      if (cityMatch && cityMatch[0].trim()) city = cityMatch[0].trim();
-
-      if (!city) return ctx.reply('Hangi şehir?');
-
-      const weatherInfo = await getWeather(city);
+      const weatherInfo = await getWeather(userQuery);
       const sent = await ctx.reply(weatherInfo, { reply_parameters: { message_id: messageId } });
 
       bot.hears(/evet|yes|isterim/i, async (ctx2) => {
         if (ctx2.message.reply_to_message?.message_id === sent.message_id) {
-          const forecast = await getWeather(city, true);
+          const forecast = await getWeather(userQuery, true);
           ctx2.reply(forecast);
         }
       });
@@ -337,10 +339,10 @@ bot.on('text', async (ctx) => {
       return ctx.reply(prices, { reply_parameters: { message_id: messageId } });
     }
 
-    // Kurlar
-    if (userQuery.includes('kur') || userQuery.includes('euro') || userQuery.includes('sterlin') || userQuery.includes('dolar')) {
-      const rates = await getExchangeRates();
-      return ctx.reply(rates, { reply_parameters: { message_id: messageId } });
+    // Döviz
+    if (userQuery.includes('kur') || userQuery.includes('dolar') || userQuery.includes('euro') || userQuery.includes('sterlin') || userQuery.includes('döviz')) {
+      const kurlar = await getDovizKurlari(userQuery);
+      return ctx.reply(kurlar, { reply_parameters: { message_id: messageId } });
     }
 
     // Şaka
@@ -358,16 +360,16 @@ bot.on('text', async (ctx) => {
     // AI cevap
     let contextInfo = "";
     if (replyToMessage && 'text' in replyToMessage) {
-      contextInfo = `${replyToMessage.from?.first_name}: "${replyToMessage.text}"`;
+      contextInfo = `${replyToMessage.from?.first_name || 'Biri'}: "${replyToMessage.text}"`;
     }
 
-    const recentHistory = getRecentContext(ctx.chat.id);
+    const recentHistory = getRecentContext();
 
     const finalUserMessage = `
 Bağlam: ${contextInfo}
 Hafıza: ${recentHistory}
 
-Kullanıcı: ${ctx.from.first_name}
+Kullanıcı: ${userName}
 Soru: ${userQuery || "Yorumla"}
 
 Cevabın 1-2 cümle olsun. Direkt cevap ver.
@@ -394,26 +396,26 @@ Cevabın 1-2 cümle olsun. Direkt cevap ver.
       frequency_penalty,
     });
 
-    const responseText = completion.choices[0].message.content?.trim() || "Anlamadım.";
+    const responseText = (completion.choices[0]?.message?.content ?? "Anlamadım.").trim();
 
     const sent = await ctx.reply(responseText, { reply_parameters: { message_id: messageId } });
 
-    const stmtBot = db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)');
-    stmtBot.run(sent.message_id, botUsername, responseText, messageId, now);
+    db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run(sent.message_id, botUsername, responseText, messageId, Date.now());
   } catch (error) {
-    console.error(error);
-    ctx.reply('Hata.');
+    console.error('Hata:', error);
+    ctx.reply('Bir hata oluştu.');
   }
 });
 
 bot.command('ozet', async (ctx) => {
   try {
     const birGunOnce = Date.now() - 24 * 60 * 60 * 1000;
-    const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 WHERE timestamp > ? LIMIT 50').all(birGunOnce);
+    const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 WHERE timestamp > ? LIMIT 50').all(birGunOnce) as Array<{ user_name: string; message_text: string }>;
 
     if (rows.length === 0) return ctx.reply('Yok.');
 
-    const sohbet = rows.map((r: any) => `${r.user_name}: ${r.message_text}`).join('\n').slice(0, 4000);
+    const sohbet = rows.map(r => `${r.user_name}: ${r.message_text}`).join('\n').slice(0, 4000);
 
     const summaryPrompt = `Özetle: ${sohbet}. Kısa tut.`;
 
@@ -426,32 +428,35 @@ bot.command('ozet', async (ctx) => {
       temperature: 0.6,
     });
 
-    ctx.reply(completion.choices[0].message.content?.trim() || 'Yapamadım.');
+    ctx.reply(completion.choices[0]?.message?.content?.trim() ?? 'Yapamadım.');
   } catch (error) {
+    console.error('Özet hatası:', error);
     ctx.reply('Hata.');
   }
 });
 
-bot.command('yardim', async (ctx) => {
+bot.command(['yardim', 'yardım'], async (ctx) => {
   const helpText = `
 Yapabildiklerim:
 - Normal sohbet: mention'la veya bana yaz.
-- Hava durumu: "Hava nasıl [şehir]?" (Avrupa dahil, otomatik bulur).
+- Hava durumu: "Hava nasıl [şehir]?" (Avrupa dahil, otomatik bulur). Varsayılan İstanbul.
 - 5 günlük tahmin: Evet dersen verir.
 - Kripto fiyat: "BTC fiyatı" veya "kripto" (BTC, ETH, SOL, BNB).
-- Güncel kurlar: "EUR kuru" veya "sterlin dolar".
+- Güncel kurlar: "dolar", "euro sterlin", "eur nok", "usd sek" vs. de (TRY bazlı veya ikili karşılaştırma).
 - Rastgele Türkçe şaka: "şaka" de.
 - Rastgele Türkçe alıntı: "alıntı" veya "söz" de.
 - Özet: /ozet (son 24 saat).
 - Kişilik değiştir: /kisilik pirate 10 (10 dk sonra default'a döner).
   Mevcut kişilikler: default, pirate, toxic, therapist, sarcastic, rapper, yakuza, baby, teacher, ninja.
-  → toxic: Ağır küfür ve laf sokma modu (doz yüksek tutulur).
+  → toxic: Ağır küfür ve laf sokma modu.
 - Hakaret edersen laf sokarım.
   `;
   ctx.reply(helpText);
 });
 
-bot.launch().then(() => console.log('Bot hazır!'));
+bot.launch({
+  dropPendingUpdates: true,
+}).then(() => console.log('Bot hazır!'));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
