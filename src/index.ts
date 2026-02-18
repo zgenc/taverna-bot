@@ -144,7 +144,7 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
     try {
       const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=tr&format=json`;
       const geoRes = await fetch(geoUrl);
-      const geoData = await geoRes.json();
+      const geoData = await geoRes.json() as any
 
       if (geoData.results && geoData.results.length > 0) {
         const result = geoData.results[0];
@@ -171,7 +171,7 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
 
   try {
     const res = await fetch(url);
-    const data = await res.json();
+    const data = await res.json() as any
 
     if (isForecast) {
       let forecastStr = `${cityInput} için 5 günlük tahmin:\n`;
@@ -210,7 +210,7 @@ async function getCryptoPrices(): Promise<string> {
     const res = await fetch(
       'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin&vs_currencies=usd,try'
     );
-    const data = await res.json();
+    const data = await res.json() as any;
 
     return `
 BTC: $${data.bitcoin.usd} (~${data.bitcoin.try}₺)
@@ -226,7 +226,7 @@ BNB: $${data.binancecoin.usd} (~${data.binancecoin.try}₺)
 async function getExchangeRates(): Promise<string> {
   try {
     const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP');
-    const data = await res.json();
+    const data = await res.json() as any;
     const rates = data.rates;
 
     return `
@@ -241,7 +241,7 @@ async function getExchangeRates(): Promise<string> {
 async function getTurkishJoke(): Promise<string> {
   try {
     const res = await fetch('https://v2.jokeapi.dev/joke/Programming?lang=tr&type=single');
-    const data = await res.json();
+    const data = await res.json() as any;
     if (data.joke) return data.joke;
   } catch {}
 
@@ -257,7 +257,7 @@ async function getTurkishJoke(): Promise<string> {
 async function getTurkishQuote(): Promise<string> {
   try {
     const res = await fetch('https://api.quotable.io/random');
-    const data = await res.json();
+    const data = await res.json() as any;
     return `"${data.content}" — ${data.author}`;
   } catch {}
 
@@ -413,7 +413,7 @@ bot.command('ozet', async (ctx) => {
 
     if (rows.length === 0) return ctx.reply('Yok.');
 
-    const sohbet = rows.map(r => `${r.user_name}: ${r.message_text}`).join('\n').slice(0, 4000);
+    const sohbet = rows.map((r: any) => `${r.user_name}: ${r.message_text}`).join('\n').slice(0, 4000);
 
     const summaryPrompt = `Özetle: ${sohbet}. Kısa tut.`;
 
