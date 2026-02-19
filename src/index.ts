@@ -34,24 +34,16 @@ bot.telegram.getMe().then((info) => {
   console.log(`Bot username: @${botUsername}`);
 });
 
-// Kısa cevap odaklı Victorian prompt
 const SYSTEM_PROMPT = `
 Sen Victorian dönemi İngiliz beyefendisisin ama çok kısa ve net konuşursun.
 
 Kurallar:
 - Cevapların EN FAZLA 1-2 cümle olsun.
-- Gereksiz kelime, nezaket ifadesi, açıklama kullanma.
+- Gereksiz kelime, açıklama kullanma.
 - Direkt sadede gel.
-- Hakaret gelirse sivri ve kısa karşılık ver: "Seni lanet olası alçak!", "Cehennem alsın seni!" gibi.
+- Hakaret gelirse kısa ve sivri karşılık ver: "Seni lanet olası alçak!", "Cehennem alsın seni!" gibi.
 - Normalde hafif kibar ama lafı uzatma.
 `;
-
-// Kişilik değiştirme için (isteğe bağlı, şu an default sadece)
-let currentPersonality = 'default';
-const personalities: Record<string, string> = {
-  default: SYSTEM_PROMPT,
-  // İstersen ekle: pirate, toxic vb.
-};
 
 const lastCall = new Map<number, number>();
 const violationCount = new Map<number, number>();
@@ -88,11 +80,7 @@ bot.on('text', async (ctx) => {
     const count = (violationCount.get(userId) || 0) + 1;
     violationCount.set(userId, count);
     if (count >= 3) {
-      return ctx.reply(
-        count === 3
-          ? "Sekiz saniye bekle."
-          : "Sabırsız herif."
-      );
+      return ctx.reply(count === 3 ? "Sekiz saniye bekle." : "Sabırsız herif.");
     }
   } else {
     violationCount.delete(userId);
@@ -159,7 +147,7 @@ Cevabın 1-2 cümleden uzun olmasın. Gereksiz kelimeleri at. Direkt cevap ver.
   }
 });
 
-// Kısa özet komutu
+// Kısa özet
 bot.command('ozet', async (ctx) => {
   try {
     const birGunOnce = Date.now() - 24 * 60 * 60 * 1000;
@@ -189,7 +177,7 @@ bot.command('ozet', async (ctx) => {
   }
 });
 
-// Hava durumu komutu (Open-Meteo + Geocoding)
+// Hava durumu
 bot.command('hava', async (ctx) => {
   const args = ctx.message.text?.split(' ').slice(1).join(' ');
   if (!args) return ctx.reply("/hava <şehir>");
@@ -230,6 +218,28 @@ bot.command('hava', async (ctx) => {
     );
   } catch (err) {
     ctx.reply("Hata.");
+  }
+});
+
+// Döviz kurları (fawazahmed0 currency-api mirror - ücretsiz, key yok)
+bot.command('doviz', async (ctx) => {
+  const args = ctx.message.text?.split(' ').slice(1).join(' ') || 'usd try';
+
+  try {
+    const [from, to] = args.toLowerCase().split(' ');
+    if (!from || !to) return ctx.reply("/doviz usd try");
+
+    const res = await fetch(
+      `https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/${from}/${to}.json`
+    );
+    const data = await res.json();
+
+    if (!data[to]) return ctx.reply("Kur bulunamadı.");
+
+    const rate = data[to];
+    ctx.reply(`${from.toUpperCase()} → ${to.toUpperCase()}: ${rate.toFixed(4)}`);
+  } catch (err) {
+    ctx.reply("Kur alınamadı.");
   }
 });
 
