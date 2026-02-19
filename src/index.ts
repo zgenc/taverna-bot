@@ -34,17 +34,56 @@ bot.telegram.getMe().then((info) => {
   console.log(`Bot username: @${botUsername}`);
 });
 
-const SYSTEM_PROMPT = `
+// Default prompt (kısa cevaplı Victorian)
+const DEFAULT_PROMPT = `
 Sen Victorian dönemi İngiliz beyefendisisin ama çok kısa ve net konuşursun.
-
-Kurallar:
-- Cevapların EN FAZLA 1-2 cümle olsun.
-- Gereksiz kelime, açıklama kullanma.
-- Direkt sadede gel.
-- Hakaret gelirse kısa ve sivri karşılık ver: "Seni lanet olası alçak!", "Cehennem alsın seni!" gibi.
-- Normalde hafif kibar ama lafı uzatma.
+Cevapların EN FAZLA 1-2 cümle olsun. Gereksiz kelime kullanma. Direkt sadede gel.
+Hakaret gelirse kısa ve sivri: "Seni lanet olası alçak!" gibi.
 `;
 
+// 10 kişilik modu
+const personalities: Record<string, string> = {
+  default: DEFAULT_PROMPT,
+  pirate: `Sen vahşi bir korsansın! Her cümlede "arrr", "matey" kullan. Küfürlü ve kısa konuş.`,
+  toxic: `Sen toksik ve laf sokansın. Kısa, acımasız cevap ver. Nezaket yok.`,
+  therapist: `Sen anlayışlı terapistsin. Empati kur, nazikçe tavsiye ver. Küfür etme.`,
+  rapper: `Sen rapçisin yo! Kafiyeli, sokak diliyle kısa cevap ver. Flow bozma.`,
+  yakuza: `Sen yakuza babasısın. Kısa, tehditkâr ve saygılı konuş. "Aniki" falan kullan.`,
+  baby: `Sen şirin bebeksin~ UwU Kısa, tatlı ve bebek diliyle konuş.`,
+  teacher: `Sen sıkıcı öğretmensin. Kısa, düz ve ders verir gibi cevap ver.`,
+  goth: `Sen gotiksin. Karanlık, kısa ve melankolik konuş.`,
+  tsundere: `Sen tsundere'sin! Kısa cevap ver ama utangaç/iğneleyici karışımı.`,
+  hacker: `Sen hackersın. Kısa, teknik jargonlu ve cool konuş.`
+};
+
+let currentPersonality = 'default';
+let personalityTimeout: NodeJS.Timeout | null = null;
+
+// Kişilik değiştirme komutu
+bot.command('kisilik', async (ctx) => {
+  const args = ctx.message.text?.split(' ').slice(1) || [];
+  if (args.length === 0) {
+    return ctx.reply("Kullanım: /kisilik <isim> [süre-dakika]\nKişilikler: " + Object.keys(personalities).join(', '));
+  }
+
+  const name = args[0].toLowerCase();
+  if (!personalities[name]) return ctx.reply("Böyle kişilik yok.");
+
+  const duration = args[1] ? parseInt(args[1]) : 10;
+  if (isNaN(duration) || duration < 1) return ctx.reply("Süre 1+ dakika olmalı.");
+
+  if (personalityTimeout) clearTimeout(personalityTimeout);
+
+  currentPersonality = name;
+  ctx.reply(`Kişilik: ${name} (${duration} dk)`);
+
+  personalityTimeout = setTimeout(() => {
+    currentPersonality = 'default';
+    ctx.reply("Kişilik süresi bitti → default mod.");
+  }, duration * 60 * 1000);
+});
+
+// Rate limit
 const lastCall = new Map<number, number>();
 const violationCount = new Map<number, number>();
 
@@ -57,9 +96,7 @@ function getRecentContext(): string {
   if (rows.length === 0) return "";
 
   const shortened = rows.map(r => {
-    const text = r.message_text.length > 120 
-      ? r.message_text.slice(0, 117) + '…' 
-      : r.message_text;
+    const text = r.message_text.length > 120 ? r.message_text.slice(0, 117) + '…' : r.message_text;
     return `${r.user_name}: ${text}`;
   });
 
@@ -117,12 +154,14 @@ ${recentHistory}
 Kullanıcı: ${ctx.from.first_name}
 Mesaj: ${userQuery || "Yorumla"}
 
-Cevabın 1-2 cümleden uzun olmasın. Gereksiz kelimeleri at. Direkt cevap ver.
+Cevabın 1-2 cümleden uzun olmasın. Direkt cevap ver.
 `;
+
+    const activePrompt = personalities[currentPersonality] || DEFAULT_PROMPT;
 
     const completion = await openai.chat.completions.create({
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: activePrompt },
         { role: "user", content: finalUserMessage },
       ],
       model: "deepseek-chat",
@@ -143,11 +182,11 @@ Cevabın 1-2 cümleden uzun olmasın. Gereksiz kelimeleri at. Direkt cevap ver.
     ).run(sent.message_id, botUsername, responseText, messageId, Date.now());
   } catch (error) {
     console.error("Hata:", error);
-    ctx.reply("Şu an sorun var.");
+    ctx.reply("Sorun var.");
   }
 });
 
-// Kısa özet
+// Özet
 bot.command('ozet', async (ctx) => {
   try {
     const birGunOnce = Date.now() - 24 * 60 * 60 * 1000;
@@ -164,7 +203,7 @@ bot.command('ozet', async (ctx) => {
 
     const completion = await openai.chat.completions.create({
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: DEFAULT_PROMPT },
         { role: "user", content: `Şu konuşmayı 1-2 cümlede özetle:\n${sohbetGecmisi}` },
       ],
       model: "deepseek-chat",
@@ -200,28 +239,30 @@ bot.command('hava', async (ctx) => {
     if (weatherData.error) return ctx.reply("Veri alınamadı.");
 
     const current = weatherData.current;
-    const weatherDesc = {
+    const weatherCode = current.weather_code ?? -1;
+
+    const weatherDesc: Record<number | string, string> = {
       0: "Açık",
       1: "Az bulutlu",
       2: "Parçalı bulutlu",
       3: "Kapalı",
       45: "Sis",
       51: "Çiseleme",
-    }[current.weather_code] || "Bilinmiyor";
+    };
+
+    const description = weatherDesc[weatherCode] || weatherDesc[String(weatherCode)] || "Bilinmiyor";
 
     ctx.reply(
       `${name}\n` +
-      `${current.temperature_2m}°C\n` +
-      `Nem: ${current.relative_humidity_2m}%\n` +
-      `Rüzgar: ${current.wind_speed_10m} km/s\n` +
-      weatherDesc
+      `${current.temperature_2m}°C  Nem: ${current.relative_humidity_2m}%  Rüzgar: ${current.wind_speed_10m} km/s\n` +
+      description
     );
   } catch (err) {
     ctx.reply("Hata.");
   }
 });
 
-// Döviz kurları (fawazahmed0 currency-api mirror - ücretsiz, key yok)
+// Döviz kurları (çalışan ücretsiz API: open.er-api.com)
 bot.command('doviz', async (ctx) => {
   const args = ctx.message.text?.split(' ').slice(1).join(' ') || 'usd try';
 
@@ -229,18 +270,39 @@ bot.command('doviz', async (ctx) => {
     const [from, to] = args.toLowerCase().split(' ');
     if (!from || !to) return ctx.reply("/doviz usd try");
 
-    const res = await fetch(
-      `https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/${from}/${to}.json`
-    );
+    const res = await fetch(`https://open.er-api.com/v6/latest/${from.toUpperCase()}`);
     const data = await res.json();
 
-    if (!data[to]) return ctx.reply("Kur bulunamadı.");
+    if (data.result !== 'success' || !data.rates?.[to.toUpperCase()]) return ctx.reply("Kur alınamadı veya geçersiz para birimi.");
 
-    const rate = data[to];
+    const rate = data.rates[to.toUpperCase()];
     ctx.reply(`${from.toUpperCase()} → ${to.toUpperCase()}: ${rate.toFixed(4)}`);
   } catch (err) {
     ctx.reply("Kur alınamadı.");
   }
+});
+
+// Görsel yardım menüsü (teknik detay yok)
+bot.command('yardimenu', (ctx) => {
+  const menu = `
+🤖 **Taverna Bot Yardım**
+
+🌟 Sohbet: @${botUsername} mention veya reply ver  
+  → Kısa Victorian beyefendi cevapları (hafızalı)
+
+💬 Kişilik değiştir: /kisilik <isim> [süre]  
+  → Örnek: pirate, toxic, therapist, rapper, yakuza, baby, teacher, goth, tsundere, hacker
+
+🌤️ /hava <şehir> → Anlık hava durumu
+
+💱 /doviz [para1] [para2] → Döviz kuru (örn: usd try)
+
+📊 /ozet → Son 24 saatin özeti
+
+❓ /yardimenu → Bu menü
+  `.trim();
+
+  ctx.replyWithMarkdown(menu);
 });
 
 bot.launch().then(() => console.log("Bot çalışıyor."));
