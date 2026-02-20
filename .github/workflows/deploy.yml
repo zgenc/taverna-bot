@@ -17,16 +17,21 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            # 0. ÇOK ÖNEMLİ: Node, NPM ve PM2'nin yollarını GitHub'a tanıt (Non-interactive login fix)
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            source ~/.bashrc || true
+            
             # 1. Proje klasörüne git
             cd /root/taverna-api
             
-            # 2. GitHub Secrets'tan gelen verilerle .env dosyasını anlık oluştur (eskiyi ezer)
+            # 2. GitHub Secrets'tan gelen verilerle .env dosyasını anlık oluştur
             echo "TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}" > .env
             echo "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}" >> .env
             echo "TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}" >> .env
             
-            # 3. Yeni kodları Github'dan çek (ÇOK ÖNEMLİ)
+            # 3. Yeni kodları Github'dan çek
             git pull origin main
             
-            # 4. Senin düzenlediğin o harika package.json scriptini çalıştır!
+            # 4. Sihirli scripti çalıştır
             npm run deploy
