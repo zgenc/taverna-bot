@@ -537,12 +537,15 @@ Cevabın 1-2 cümle olsun. Direkt cevap ver.
 
 // Inline button için callback handler
 bot.on('callback_query', async (cqc) => {
+    // @ts-ignore
   if (!cqc.callbackQuery.data?.startsWith('w_fc_')) return;
 
+  // @ts-ignore
   const parts = cqc.callbackQuery.data.split('_');
   const origMsgId = Number(parts[2]);
   const city = parts.slice(3).join('_');
 
+  // @ts-ignore
   if (cqc.callbackQuery.message?.reply_to_message?.message_id !== origMsgId) {
     return cqc.answerCbQuery('Bu tahmin artık geçerli değil.', { show_alert: true });
   }
