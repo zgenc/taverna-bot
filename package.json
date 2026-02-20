@@ -6,9 +6,11 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "npx tsc",
-    "pm2:restart": "pm2 flush && (pm2 delete taverna-api || echo 'Zaten kapalı, devam ediliyor...') && pm2 start dist/index.js --name 'taverna-api'",
-    "start": "pm2 start dist/index.js --name 'taverna-api'",
-    "log": "pm2 logs taverna-api"
+    "pm2:flush": "pm2 flush",
+    "pm2:delete": "pm2 delete taverna-api || true",
+    "pm2:start": "pm2 start dist/index.js --name 'taverna-api'",
+    "pm2:logs": "pm2 logs taverna-api",
+    "deploy": "npm install && npm run build && npm run pm2:flush && npm run pm2:delete && npm run pm2:start"
   },
   "repository": {
     "type": "git",

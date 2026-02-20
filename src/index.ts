@@ -538,10 +538,12 @@ Cevabın 1-2 cümle olsun. Direkt cevap ver.
 bot.on('callback_query', async (cqc) => {
   const query = cqc.callbackQuery;
 
+  // @ts-ignore
   if (!query.data || !query.data.startsWith('w_fc_')) {
     return cqc.answerCbQuery();
   }
 
+  // @ts-ignore
   const parts = query.data.split('_');
   const origMsgId = Number(parts[2]);
   const city = parts.slice(3).join('_');
