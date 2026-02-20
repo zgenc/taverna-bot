@@ -271,6 +271,40 @@ async function getTurkishQuote(): Promise<string> {
   return quotes[Math.floor(Math.random() * quotes.length)];
 }
 
+// --- YENİ EKLENEN: TAVILY ARAMA FONKSİYONU ---
+async function searchWebTavily(query: string): Promise<string> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) {
+    console.error("TAVILY_API_KEY eksik!");
+    return "Arama yapılamadı (API Key yok).";
+  }
+
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: query,
+        search_depth: "basic",
+        include_answer: true,
+      })
+    });
+
+    const data = await res.json() as { answer?: string, results?: Array<{content: string}> };
+    
+    // Tavily'nin kendi özet cevabı varsa onu kullan, yoksa ilk sonucun içeriğini al
+    if (data.answer) return data.answer;
+    if (data.results && data.results.length > 0) return data.results[0].content;
+    
+    return "Güncel sonuç bulunamadı.";
+  } catch (error) {
+    console.error("Tavily arama hatası:", error);
+    return "Arama servisi şu an meşgul.";
+  }
+}
+// ----------------------------------------------
+
 const lastCall = new Map<number, number>();
 const violationCount = new Map<number, number>();
 
@@ -366,9 +400,17 @@ bot.on('text', async (ctx) => {
 
     const recentHistory = getRecentContext();
 
+// YENİ EKLENEN: GÜNCEL BİLGİ ARAMASI (İsteğe Bağlı) ÖMER
+    let searchContext = "";
+    const lowerQuery = userQuery.toLowerCase();
+    if (lowerQuery.includes('nedir') || lowerQuery.includes('kim') || lowerQuery.includes('sonuç') || lowerQuery.includes('haber') || lowerQuery.includes('ara') || lowerQuery.includes('araştır')) {
+        searchContext = await searchWebTavily(userQuery);
+    }
+    
     const finalUserMessage = `
 Bağlam: ${contextInfo}
 Hafıza: ${recentHistory}
+İnternet Araması: ${searchContext ? searchContext : "Arama yapılmadı."}
 
 Kullanıcı: ${userName}
 Soru: ${userQuery || "Yorumla"}
