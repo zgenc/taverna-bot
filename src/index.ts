@@ -95,26 +95,96 @@ const cityCoords: Record<string, { lat: number; lon: number }> = {
   bursa: { lat: 40.1826, lon: 29.0669 },
 };
 
+const knownCities = Object.keys(cityCoords);
+
+// Fuzzy matching yardımcıları
+function levenshteinDistance(a: string, b: string): number {
+  const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+
+  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+  for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
+
+  for (let j = 1; j <= b.length; j++) {
+    for (let i = 1; i <= a.length; i++) {
+      const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,
+        matrix[j - 1][i] + 1,
+        matrix[j - 1][i - 1] + indicator
+      );
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+function stringSimilarity(a: string, b: string): number {
+  const longer = Math.max(a.length, b.length);
+  if (longer === 0) return 1.0;
+  return (longer - levenshteinDistance(a, b)) / longer;
+}
+
+function fuzzyFindCity(input: string, threshold = 0.72): string | null {
+  const lower = input.toLowerCase().trim();
+  let best: string | null = null;
+  let bestScore = 0;
+
+  for (const city of knownCities) {
+    const score = stringSimilarity(lower, city);
+    if (score > bestScore && score >= threshold) {
+      bestScore = score;
+      best = city;
+    }
+  }
+  return best;
+}
+
+function capitalize(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function getNiceCityName(slug: string): string {
+  const map: Record<string, string> = {
+    istanbul: 'İstanbul',
+    ankara: 'Ankara',
+    izmir: 'İzmir',
+    antalya: 'Antalya',
+    bursa: 'Bursa',
+  };
+  return map[slug] || capitalize(slug);
+}
+
 async function getWeather(cityInput: string, isForecast = false): Promise<string> {
-  const city = cityInput.toLowerCase().trim() || 'istanbul';
+  const rawInput = cityInput.toLowerCase().trim();
+  let searchCity = rawInput || 'istanbul';
+  let displayCity = capitalize(searchCity);
 
   let coords: { lat: number; lon: number } | undefined;
-  if (cityCoords[city]) {
-    coords = cityCoords[city];
+
+  if (cityCoords[searchCity]) {
+    coords = cityCoords[searchCity];
+    displayCity = getNiceCityName(searchCity);
   } else {
+    const fuzzy = fuzzyFindCity(searchCity);
+    if (fuzzy) {
+      coords = cityCoords[fuzzy];
+      displayCity = getNiceCityName(fuzzy);
+    }
+  }
+
+  if (!coords) {
     try {
-      const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=tr&format=json`;
+      const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchCity)}&count=1&language=tr&format=json`;
       const geoRes = await fetch(geoUrl);
       const geoData = await geoRes.json() as { results?: { latitude: number; longitude: number; name: string; country_code: string }[] };
 
       if (geoData.results && geoData.results.length > 0) {
         const result = geoData.results[0];
-        if (europeCountryCodes.has(result.country_code)) {
+        // if (europeCountryCodes.has(result.country_code)) {
           coords = { lat: result.latitude, lon: result.longitude };
           cityInput = result.name;
-        } else {
-          return 'Bu şehir Avrupa\'da değil.';
-        }
+        // } else {
+        //   return 'Bu şehir Avrupa\'da değil.';
+        // }
       } else {
         return 'Şehir bulunamadı. Başka bir şehir için sorabilirsin.';
       }
@@ -127,9 +197,9 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
 
   let url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&timezone=Europe/Istanbul`;
   if (isForecast) {
-    url += '&daily=temperature_2m_max,temperature_2m_min,weather_code';
+    url += '&daily=weather_code,temperature_2m_max,temperature_2m_min&forecast_days=5';
   } else {
-    url += '&current=temperature_2m,weather_code';
+    url += '&current=temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m';
   }
 
   try {
@@ -137,9 +207,9 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
     const data = await res.json() as any;
 
     if (isForecast && data.daily) {
-      let forecastStr = `${cityInput} için 5 günlük tahmin:\n`;
+      let forecastStr = `${displayCity} için 5 günlük tahmin:\n`;
       for (let i = 0; i < 5; i++) {
-        const date = data.daily.time[i];
+        const date = data.daily.time[i].split('T')[0];
         const maxTemp = data.daily.temperature_2m_max[i];
         const minTemp = data.daily.temperature_2m_min[i];
         const code = data.daily.weather_code[i];
@@ -150,8 +220,10 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
     } else if (data.current) {
       const temp = data.current.temperature_2m;
       const code = data.current.weather_code;
+      const humidity = data.current.relative_humidity_2m;
+      const wind = data.current.wind_speed_10m;
       let desc = getWeatherDesc(code);
-      return `${cityInput}'da ${desc}, ${temp}°C. Başka şehir için sorabilirsin. 5 günlük tahmin ister misin? (Evet/Hayır)`;
+      return `${displayCity}'da ${desc}, ${temp}°C\nNem: %${humidity} • Rüzgar: ${wind} km/s\n\n5 günlük tahmin ister misin?`;
     }
     return 'Hava verisi alınamadı.';
   } catch {
@@ -160,13 +232,31 @@ async function getWeather(cityInput: string, isForecast = false): Promise<string
 }
 
 function getWeatherDesc(code: number): string {
-  if (code === 0) return 'açık';
-  if (code <= 3) return 'bulutlu';
-  if (code <= 48) return 'sisli';
-  if (code <= 67) return 'yağmurlu';
-  if (code <= 77) return 'karlı';
-  if (code <= 86) return 'fırtınalı';
-  return 'gök gürültülü';
+  const descMap: Record<number, string> = {
+    0: 'Açık',
+    1: 'Az bulutlu',
+    2: 'Parçalı bulutlu',
+    3: 'Çok bulutlu',
+    45: 'Sis',
+    48: 'Puslu',
+    51: 'Hafif çiseleme',
+    53: 'Çiseleme',
+    55: 'Yoğun çiseleme',
+    61: 'Hafif yağmur',
+    63: 'Yağmur',
+    65: 'Şiddetli yağmur',
+    71: 'Hafif kar',
+    73: 'Kar',
+    75: 'Yoğun kar',
+    77: 'Kar taneleri',
+    80: 'Hafif sağanak',
+    81: 'Sağanak',
+    82: 'Şiddetli sağanak',
+    95: 'Gök gürültülü fırtına',
+    96: 'Gök gürültülü fırtına + hafif dolu',
+    99: 'Gök gürültülü fırtına + dolu',
+  };
+  return descMap[code] ?? 'Bilinmeyen hava durumu';
 }
 
 async function getCryptoPrices(): Promise<string> {
@@ -329,16 +419,8 @@ bot.on('text', async (ctx) => {
 
   const now = Date.now();
   const userId = ctx.from?.id ?? 0;
-  const last = lastCall.get(userId) || 0;
 
-  if (now - last < 8000) {
-    const count = (violationCount.get(userId) || 0) + 1;
-    violationCount.set(userId, count);
-    if (count >= 3) return ctx.reply('Bekle.');
-  } else {
-    violationCount.delete(userId);
-  }
-  lastCall.set(userId, now);
+  // spam kontrolü ve "Bekle." tamamen kaldırıldı
 
   if (!text.startsWith('/')) {
     db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)')
@@ -356,13 +438,15 @@ bot.on('text', async (ctx) => {
 
     // Hava durumu
     if (userQuery.includes('hava') || userQuery.includes('weather') || userQuery.includes('durum')) {
-      const weatherInfo = await getWeather(userQuery);
-      const sent = await ctx.reply(weatherInfo, { reply_parameters: { message_id: messageId } });
+      const cityPart = userQuery.replace(/hava|weather|durum/gi, '').trim();
+      const weatherInfo = await getWeather(cityPart);
 
-      bot.hears(/evet|yes|isterim/i, async (ctx2) => {
-        if (ctx2.message.reply_to_message?.message_id === sent.message_id) {
-          const forecast = await getWeather(userQuery, true);
-          ctx2.reply(forecast);
+      const sent = await ctx.reply(weatherInfo, {
+        reply_parameters: { message_id: messageId },
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "5 günlük tahmini göster", callback_data: `w_fc_${messageId}_${cityPart || 'istanbul'}` }
+          ]]
         }
       });
       return;
@@ -400,7 +484,6 @@ bot.on('text', async (ctx) => {
 
     const recentHistory = getRecentContext();
 
-// YENİ EKLENEN: GÜNCEL BİLGİ ARAMASI (İsteğe Bağlı) ÖMER
     let searchContext = "";
     const lowerQuery = userQuery.toLowerCase();
     if (lowerQuery.includes('nedir') || lowerQuery.includes('kim') || lowerQuery.includes('sonuç') || lowerQuery.includes('haber') || lowerQuery.includes('ara') || lowerQuery.includes('araştır')) {
@@ -451,24 +534,71 @@ Cevabın 1-2 cümle olsun. Direkt cevap ver.
   }
 });
 
+// Callback query handler (inline button için) - tip güvenli hale getirildi
+bot.on('callback_query', async (cqc) => {
+  const query = cqc.callbackQuery;
+
+  if (!query.data || !query.data.startsWith('w_fc_')) {
+    return cqc.answerCbQuery();
+  }
+
+  const parts = query.data.split('_');
+  const origMsgId = Number(parts[2]);
+  const city = parts.slice(3).join('_');
+
+  const message = query.message;
+  if (!message || !('reply_to_message' in message) || !message.reply_to_message) {
+    return cqc.answerCbQuery('Bu tahmin artık geçerli değil.', { show_alert: true });
+  }
+
+  if (message.reply_to_message.message_id !== origMsgId) {
+    return cqc.answerCbQuery('Bu tahmin artık geçerli değil.', { show_alert: true });
+  }
+
+  try {
+    const forecast = await getWeather(city, true);
+    await cqc.editMessageText(forecast, {
+      reply_markup: { inline_keyboard: [] }
+    });
+    await cqc.answerCbQuery();
+  } catch (err) {
+    await cqc.answerCbQuery('Tahmin alınamadı.', { show_alert: true });
+  }
+});
+
 bot.command('ozet', async (ctx) => {
   try {
-    const birGunOnce = Date.now() - 24 * 60 * 60 * 1000;
-    const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 WHERE timestamp > ? LIMIT 50').all(birGunOnce) as Array<{ user_name: string; message_text: string }>;
+    const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 ORDER BY id DESC LIMIT 150').all() as Array<{ user_name: string; message_text: string }>;
 
     if (rows.length === 0) return ctx.reply('Yok.');
 
-    const sohbet = rows.map(r => `${r.user_name}: ${r.message_text}`).join('\n').slice(0, 4000);
+    const sohbet = rows.reverse().map(r => `${r.user_name}: ${r.message_text}`).join('\n').slice(0, 6000);
 
-    const summaryPrompt = `Özetle: ${sohbet}. Kısa tut.`;
+    const summaryPrompt = `
+AŞAĞIDAKİ SOHBETİN ÇOK DETAYLI VE UZUN BİR ÖZETİNİ ÇIKAR.
+
+KISA TUTMA! KISA ÖZET İSTEMİYORUM!
+En az 30-50 mesajın içeriğini mutlaka kapsa.
+Ana konuları, kim ne demiş, espriler, tartışmalar, duygular, dikkat çeken ifadeler hepsini detaylı anlat.
+Özet bilgilendirici, kapsamlı ve uzun olsun.
+
+Sohbet (son 150 mesaj):
+${sohbet}
+
+Şimdi uzun, detaylı ve kapsamlı özetini yaz:
+`;
 
     const completion = await openai.chat.completions.create({
       messages: [
-        { role: "system", content: DEFAULT_PROMPT },
+        { role: "system", content: "Sen çok detaylı, uzun ve kapsamlı özetler çıkaran bir asistansın. Asla kısa kesme, detaydan kaçma." },
         { role: "user", content: summaryPrompt }
       ],
       model: "deepseek-chat",
-      temperature: 0.6,
+      temperature: 0.85,
+      max_tokens: 1200,
+      top_p: 0.9,
+      presence_penalty: 0.3,
+      frequency_penalty: 0.2,
     });
 
     ctx.reply(completion.choices[0]?.message?.content?.trim() ?? 'Yapamadım.');
@@ -483,12 +613,12 @@ bot.command(['yardim', 'yardım'], async (ctx) => {
 Yapabildiklerim:
 - Normal sohbet: mention'la veya bana yaz.
 - Hava durumu: "Hava nasıl [şehir]?" (Avrupa dahil, otomatik bulur). Varsayılan İstanbul.
-- 5 günlük tahmin: Evet dersen verir.
+- 5 günlük tahmin: Butona basarak verir.
 - Kripto fiyat: "BTC fiyatı" veya "kripto" (BTC, ETH, SOL, BNB).
 - Güncel kurlar: "dolar", "euro sterlin", "eur nok", "usd sek" vs. de (TRY bazlı veya ikili karşılaştırma).
 - Rastgele Türkçe şaka: "şaka" de.
 - Rastgele Türkçe alıntı: "alıntı" veya "söz" de.
-- Özet: /ozet (son 24 saat).
+- Özet: /ozet (son 150 mesajın detaylı özeti, en az 30-50 mesaj kapsar).
 - Kişilik değiştir: /kisilik pirate 10 (10 dk sonra default'a döner).
   Mevcut kişilikler: default, pirate, toxic, therapist, sarcastic, rapper, yakuza, baby, teacher, ninja.
   → toxic: Ağır küfür ve laf sokma modu.
