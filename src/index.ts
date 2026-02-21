@@ -66,6 +66,34 @@ const personalities: Record<string, string> = {
 let currentPersonality: keyof typeof personalities = 'default';
 let personalityTimeout: NodeJS.Timeout | null = null;
 
+// ==========================================
+// GROK ve Tweet Yakalama Zamazingosu -Melik
+// ==========================================
+bot.command('grok', async (ctx) => {
+  const query = ctx.message.text.split(' ').slice(1).join(' ');
+  if (!query) return ctx.reply("Grok'a ne soracaksın? Kullanım: /grok <soru>");
+
+  try {
+    const completion = await grokClient.chat.completions.create({
+      messages: [
+        { role: "system", content: "Sen zeki ve alaycı Grok'sun. Kısa, net ve zekice cevap ver." },
+        { role: "user", content: query }
+      ],
+      model: "grok-4-latest",
+      temperature: 0.7,
+    });
+
+    const resp = completion.choices[0]?.message?.content?.trim() || "Vıyyy! Grok çöktü.";
+    ctx.reply(`[Grok] ${resp}`, { reply_parameters: { message_id: ctx.message.message_id } });
+  } catch (error) {
+    console.error('Grok hatası:', error);
+    ctx.reply('Grok servisine ulaşılamıyor.');
+  }
+});
+// ==========================================
+// BİTİŞ - GROK ve Tweet Yakalama Zamazingosu -Melik
+// ==========================================
+
 bot.command('kisilik', async (ctx) => {
   const args = ctx.message.text.split(' ').slice(1);
   if (args.length === 0) {
@@ -91,6 +119,68 @@ bot.command('kisilik', async (ctx) => {
     currentPersonality = 'default';
     ctx.reply('Süre bitti → default Victorian moduna döndüm.');
   }, duration * 60 * 1000);
+});
+
+bot.command('ozet', async (ctx) => {
+  try {
+    const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 ORDER BY id DESC LIMIT 150').all() as Array<{ user_name: string; message_text: string }>;
+
+    if (rows.length === 0) return ctx.reply('Yok.');
+
+    const sohbet = rows.reverse().map(r => `${r.user_name}: ${r.message_text}`).join('\n').slice(0, 6000);
+
+    const summaryPrompt = `
+AŞAĞIDAKİ SOHBETİN ÇOK DETAYLI VE UZUN BİR ÖZETİNİ ÇIKAR.
+
+KISA TUTMA! KISA ÖZET İSTEMİYORUM!
+En az 30-50 mesajın içeriğini mutlaka kapsa.
+Ana konuları, kim ne demiş, espriler, tartışmalar, duygular, dikkat çeken ifadeler hepsini detaylı anlat.
+Özet bilgilendirici, kapsamlı ve uzun olsun.
+
+Sohbet (son 150 mesaj):
+${sohbet}
+
+Şimdi uzun, detaylı ve kapsamlı özetini yaz:
+`;
+
+    const completion = await openai.chat.completions.create({
+      messages: [
+        { role: "system", content: "Sen çok detaylı, uzun ve kapsamlı özetler çıkaran bir asistansın. Asla kısa kesme, detaydan kaçma." },
+        { role: "user", content: summaryPrompt }
+      ],
+      model: "deepseek-chat",
+      temperature: 0.85,
+      max_tokens: 1200,
+      top_p: 0.9,
+      presence_penalty: 0.3,
+      frequency_penalty: 0.2,
+    });
+
+    ctx.reply(completion.choices[0]?.message?.content?.trim() ?? 'Yapamadım.');
+  } catch (error) {
+    console.error('Özet hatası:', error);
+    ctx.reply('Hata.');
+  }
+});
+
+bot.command(['yardim', 'yardım'], async (ctx) => {
+  const helpText = `
+Yapabildiklerim:
+- Normal sohbet: mention'la veya bana yaz.
+- Hava durumu: "Hava nasıl [şehir]?" (Avrupa dahil, otomatik bulur). Varsayılan İstanbul.
+- 5 günlük tahmin: Butona basarak verir.
+- Kripto fiyat: "BTC fiyatı" veya "kripto" (BTC, ETH, SOL, BNB).
+- Güncel kurlar: "dolar", "euro sterlin", "eur nok", "usd sek" vs. de (TRY bazlı veya ikili karşılaştırma).
+- Rastgele Türkçe şaka: "şaka" de.
+- Rastgele Türkçe alıntı: "alıntı" veya "söz" de.
+- Özet: /ozet (son 150 mesajın detaylı özeti, en az 30-50 mesaj kapsar).
+- Grok AI: "/grok soru" yazarak doğrudan Grok'a danışabilirsin. (Ayrıca Twitter linklerini otomatik analiz eder).
+- Kişilik değiştir: /kisilik pirate 10 (10 dk sonra default'a döner).
+  Mevcut kişilikler: default, pirate, toxic, therapist, sarcastic, rapper, yakuza, baby, teacher, ninja.
+  → toxic: Ağır küfür ve laf sokma modu.
+- Hakaret edersen laf sokarım.
+  `;
+  ctx.reply(helpText);
 });
 
 const europeCountryCodes = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'GB', 'NO', 'CH', 'IS', 'LI', 'TR', 'AL', 'BA', 'ME', 'MK', 'RS', 'UA']);
@@ -605,93 +695,7 @@ bot.on('callback_query', async (cqc) => {
   }
 });
 
-bot.command('ozet', async (ctx) => {
-  try {
-    const rows = db.prepare('SELECT user_name, message_text FROM messages_v2 ORDER BY id DESC LIMIT 150').all() as Array<{ user_name: string; message_text: string }>;
 
-    if (rows.length === 0) return ctx.reply('Yok.');
-
-    const sohbet = rows.reverse().map(r => `${r.user_name}: ${r.message_text}`).join('\n').slice(0, 6000);
-
-    const summaryPrompt = `
-AŞAĞIDAKİ SOHBETİN ÇOK DETAYLI VE UZUN BİR ÖZETİNİ ÇIKAR.
-
-KISA TUTMA! KISA ÖZET İSTEMİYORUM!
-En az 30-50 mesajın içeriğini mutlaka kapsa.
-Ana konuları, kim ne demiş, espriler, tartışmalar, duygular, dikkat çeken ifadeler hepsini detaylı anlat.
-Özet bilgilendirici, kapsamlı ve uzun olsun.
-
-Sohbet (son 150 mesaj):
-${sohbet}
-
-Şimdi uzun, detaylı ve kapsamlı özetini yaz:
-`;
-
-    const completion = await openai.chat.completions.create({
-      messages: [
-        { role: "system", content: "Sen çok detaylı, uzun ve kapsamlı özetler çıkaran bir asistansın. Asla kısa kesme, detaydan kaçma." },
-        { role: "user", content: summaryPrompt }
-      ],
-      model: "deepseek-chat",
-      temperature: 0.85,
-      max_tokens: 1200,
-      top_p: 0.9,
-      presence_penalty: 0.3,
-      frequency_penalty: 0.2,
-    });
-
-    ctx.reply(completion.choices[0]?.message?.content?.trim() ?? 'Yapamadım.');
-  } catch (error) {
-    console.error('Özet hatası:', error);
-    ctx.reply('Hata.');
-  }
-});
-// ==========================================
-// GROK ve Tweet Yakalama Zamazingosu -Melik
-// ==========================================
-bot.command('grok', async (ctx) => {
-  const query = ctx.message.text.split(' ').slice(1).join(' ');
-  if (!query) return ctx.reply("Grok'a ne soracaksın? Kullanım: /grok <soru>");
-
-  try {
-    const completion = await grokClient.chat.completions.create({
-      messages: [
-        { role: "system", content: "Sen zeki ve alaycı Grok'sun. Kısa, net ve zekice cevap ver." },
-        { role: "user", content: query }
-      ],
-      model: "grok-4-latest",
-      temperature: 0.7,
-    });
-
-    const resp = completion.choices[0]?.message?.content?.trim() || "Vıyyy! Grok çöktü.";
-    ctx.reply(`[Grok] ${resp}`, { reply_parameters: { message_id: ctx.message.message_id } });
-  } catch (error) {
-    console.error('Grok hatası:', error);
-    ctx.reply('Grok servisine ulaşılamıyor.');
-  }
-});
-// ==========================================
-// BİTİŞ - GROK ve Tweet Yakalama Zamazingosu -Melik
-// ==========================================
-bot.command(['yardim', 'yardım'], async (ctx) => {
-  const helpText = `
-Yapabildiklerim:
-- Normal sohbet: mention'la veya bana yaz.
-- Hava durumu: "Hava nasıl [şehir]?" (Avrupa dahil, otomatik bulur). Varsayılan İstanbul.
-- 5 günlük tahmin: Butona basarak verir.
-- Kripto fiyat: "BTC fiyatı" veya "kripto" (BTC, ETH, SOL, BNB).
-- Güncel kurlar: "dolar", "euro sterlin", "eur nok", "usd sek" vs. de (TRY bazlı veya ikili karşılaştırma).
-- Rastgele Türkçe şaka: "şaka" de.
-- Rastgele Türkçe alıntı: "alıntı" veya "söz" de.
-- Özet: /ozet (son 150 mesajın detaylı özeti, en az 30-50 mesaj kapsar).
-- Grok AI: "/grok soru" yazarak doğrudan Grok'a danışabilirsin. (Ayrıca Twitter linklerini otomatik analiz eder).
-- Kişilik değiştir: /kisilik pirate 10 (10 dk sonra default'a döner).
-  Mevcut kişilikler: default, pirate, toxic, therapist, sarcastic, rapper, yakuza, baby, teacher, ninja.
-  → toxic: Ağır küfür ve laf sokma modu.
-- Hakaret edersen laf sokarım.
-  `;
-  ctx.reply(helpText);
-});
 
 bot.launch({
   dropPendingUpdates: true,
