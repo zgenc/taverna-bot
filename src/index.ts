@@ -79,7 +79,7 @@ bot.command('grok', async (ctx) => {
         { role: "system", content: "Sen zeki ve alaycı Grok'sun. Kısa, net ve zekice cevap ver." },
         { role: "user", content: query }
       ],
-      model: "grok-4-latest",
+      model: "grok-4-1-fast-reasoning",
       temperature: 0.7,
     });
 
