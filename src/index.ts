@@ -8,11 +8,16 @@ dotenv.config();
 
 if (!process.env.TELEGRAM_TOKEN) throw new Error("TELEGRAM_TOKEN eksik!");
 if (!process.env.DEEPSEEK_API_KEY) throw new Error("DEEPSEEK_API_KEY eksik!");
+if (!process.env.GROK_API_KEY) throw new Error("GROK_API_KEY eksik!"); //Melik
 
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN);
 const openai = new OpenAI({
   baseURL: 'https://api.deepseek.com',
   apiKey: process.env.DEEPSEEK_API_KEY,
+});
+const grokClient = new OpenAI({ //Melik
+  baseURL: 'https://api.x.ai/v1',
+  apiKey: process.env.GROK_API_KEY,
 });
 
 const db = new Database('chat.db');
@@ -344,7 +349,34 @@ bot.on('text', async (ctx) => {
     db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)')
       .run(messageId, userName, text, replyToId, now);
   }
+  // ==========================================
+  // GROK İLE TWEET YAKALAMA ZAMAZİNGOSU -Melik
+  // ==========================================
+  const twitterRegex = /(https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[^\s]+)/i;
+  const tweetMatch = text.match(twitterRegex);
 
+  if (tweetMatch) {
+    try {
+      const completion = await grokClient.chat.completions.create({
+        messages: [
+          { role: "system", content: "Sen alaycı Grok'sun. Bu tweet linkine bakarak veya bağlamdan tahmin ederek sert ve kısa bir analiz yap." },
+          { role: "user", content: `Tweeti yorumla: ${tweetMatch[1]}` }
+        ],
+        model: "grok-4-latest",
+        temperature: 0.7,
+      });
+
+      const grokYorum = completion.choices[0]?.message?.content?.trim() || "Buna yorum yapmaya bile değmez.";
+      await ctx.reply(`[Grok] ${grokYorum}`, { reply_parameters: { message_id: messageId } });
+      
+      return; // Tweet ise işlemi burada kes, DeepSeek'e gitmesin.
+    } catch (e) {
+      console.error("Grok Tweet Hatası:", e);
+    }
+  }
+  // ==========================================
+  // BİTİŞ - GROK İLE TWEET YAKALAMA ZAMAZİNGOSU -Melik
+  // ==========================================
   const isPrivate = ctx.chat.type === 'private';
   const isMentioned = text.includes(`@${botUsername}`);
   const isReplyToBot = replyToUser === botUsername;
@@ -478,6 +510,34 @@ bot.command('ozet', async (ctx) => {
   }
 });
 
+// ==========================================
+// GROK ÇAĞIRMA ZAMAZİNGOSU -Melik
+// ==========================================
+bot.command('grok', async (ctx) => {
+  const query = ctx.message.text.split(' ').slice(1).join(' ');
+  if (!query) return ctx.reply("Grok'a ne soracaksın? Kullanım: /grok <soru>");
+
+  try {
+    const completion = await grokClient.chat.completions.create({
+      messages: [
+        { role: "system", content: "Sen zeki ve alaycı Grok'sun. Kısa, net ve zekice cevap ver." },
+        { role: "user", content: query }
+      ],
+      model: "grok-4-latest",
+      temperature: 0.7,
+    });
+
+    const resp = completion.choices[0]?.message?.content?.trim() || "Vıyy! Grok çöktü.";
+    ctx.reply(`[Grok] ${resp}`, { reply_parameters: { message_id: ctx.message.message_id } });
+  } catch (error) {
+    console.error('Grok hatası:', error);
+    ctx.reply('Grok servisine ulaşılamıyor.');
+  }
+});
+// ==========================================
+// BİTİŞ - GROK ÇAĞIRMA ZAMAZİNGOSU -Melik
+// ==========================================
+
 bot.command(['yardim', 'yardım'], async (ctx) => {
   const helpText = `
 Yapabildiklerim:
@@ -489,6 +549,7 @@ Yapabildiklerim:
 - Rastgele Türkçe şaka: "şaka" de.
 - Rastgele Türkçe alıntı: "alıntı" veya "söz" de.
 - Özet: /ozet (son 24 saat).
+- Grok AI: /grok <soru> yazarak doğrudan Grok'a sorabilirsin. X (Twitter) linklerini de otomatik analiz ederim.
 - Kişilik değiştir: /kisilik pirate 10 (10 dk sonra default'a döner).
   Mevcut kişilikler: default, pirate, toxic, therapist, sarcastic, rapper, yakuza, baby, teacher, ninja.
   → toxic: Ağır küfür ve laf sokma modu.
