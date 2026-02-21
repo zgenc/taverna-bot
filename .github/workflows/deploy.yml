@@ -29,6 +29,7 @@ jobs:
             echo "TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}" > .env
             echo "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}" >> .env
             echo "TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}" >> .env
+            echo "GROK_API_KEY=${{ secrets.GROK_API_KEY }}" >> .env
             
             # 3. Yeni kodları Github'dan çek
             git pull origin main
