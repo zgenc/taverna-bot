@@ -79,7 +79,7 @@ bot.command('grok', async (ctx) => {
         { role: "system", content: "Sen zeki ve alaycı Grok'sun. Kısa, net ve zekice cevap ver." },
         { role: "user", content: query }
       ],
-      model: "grok-4-1-fast-reasoning",
+      model: "grok-4-1-fast-non-reasoning",
       temperature: 0.7,
     });
 
@@ -528,26 +528,48 @@ bot.on('text', async (ctx) => {
 // ==========================================
   // GROK ve Tweet Yakalama Zamazingosu -Melik
   // ==========================================
-  const twitterRegex = /(https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[^\s]+)/i;
+  const twitterRegex = /https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/([a-zA-Z0-9_]+\/status\/[0-9]+)/i;
   const tweetMatch = text.match(twitterRegex);
 
   if (tweetMatch) {
     try {
+      // 1. Tweet verisini çek
+      const tweetYolu = tweetMatch[1];
+      const apiUrl = `https://api.vxtwitter.com/${tweetYolu}`;
+      
+      const res = await fetch(apiUrl);
+      const tweetData = await res.json() as any;
+
+      let tweetIcerigi = "Tweet içeriği okunamadı veya gizli hesap.";
+      if (tweetData && tweetData.text) {
+        
+        // Medya varlığını kontrol et
+        let medyaNotu = "";
+        if (tweetData.media_extended && tweetData.media_extended.length > 0) {
+          const types = tweetData.media_extended.map((m: any) => m.type === 'video' ? 'Video' : m.type === 'image' ? 'Fotoğraf' : 'GIF');
+          const uniqueTypes = [...new Set(types)].join(' ve '); // Örn: "Fotoğraf ve Video"
+          medyaNotu = `\n\n[Sistem Notu: Bu tweette ${uniqueTypes} eklenmiş ancak sen görsel/video göremiyorsun. Görmüş gibi uydurma yapma ama ${uniqueTypes} varlığını hesaba katarak metni alaycı şekilde yorumla.]`;
+        }
+
+        tweetIcerigi = `Atan Kişi: ${tweetData.user_name}\nMetin: "${tweetData.text}"${medyaNotu}`;
+      }
+
+      // 2. Grok'a bağlamı ve metni ilet
       const completion = await grokClient.chat.completions.create({
         messages: [
-          { role: "system", content: "Sen alaycı Grok'sun. Bu tweet linkine bakarak veya bağlamdan tahmin ederek sert ve kısa bir analiz yap." },
-          { role: "user", content: `Tweeti yorumla: ${tweetMatch[1]}` }
+          { role: "system", content: "Sen zeki ve alaycı Grok'sun. Sana iletilen tweet verisini analiz et. Videoları veya görselleri göremediğini kabul et, uydurma yapma ama medyanın varlığına dair notu dikkate alarak kısa, net ve iğneleyici bir cevap ver." },
+          { role: "user", content: `Şu tweeti yorumla:\n\n${tweetIcerigi}` }
         ],
-        model: "grok-4-1-fast-reasoning",
+        model: "grok-4-1-fast-non-reasoning",
         temperature: 0.7,
       });
 
       const grokYorum = completion.choices[0]?.message?.content?.trim() || "Buna yorum yapmaya bile değmez.";
       await ctx.reply(`[Grok] ${grokYorum}`, { reply_parameters: { message_id: messageId } });
       
-      return; // Tweet ise işlemi burada kes, DeepSeek'e gitmesin.
+      return; // İşlemi kes, DeepSeek'e gitmesin.
     } catch (e) {
-      console.error("Grok Tweet Hatası:", e);
+      console.error("Grok Tweet Okuma Hatası:", e);
     }
   }
   // ==========================================
