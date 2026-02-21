@@ -538,7 +538,7 @@ bot.on('text', async (ctx) => {
           { role: "system", content: "Sen alaycı Grok'sun. Bu tweet linkine bakarak veya bağlamdan tahmin ederek sert ve kısa bir analiz yap." },
           { role: "user", content: `Tweeti yorumla: ${tweetMatch[1]}` }
         ],
-        model: "grok-4-1-fast-non-reasoning",
+        model: "grok-4-1-fast-reasoning",
         temperature: 0.7,
       });
 
