@@ -66,6 +66,37 @@ const personalities: Record<string, string> = {
 let currentPersonality: keyof typeof personalities = 'default';
 let personalityTimeout: NodeJS.Timeout | null = null;
 
+// ────────────────────────────────────────────────
+// Rand cihaz generator  -Donti
+// ────────────────────────────────────────────────
+
+const dickTriggerWords = new Set<string>([
+  'sik', 'sikerim', 'siktir', 'amk', 'yarrak',
+  'yarr', 'sie', 'sikiyim', 'orospu', 'amına',
+  'sikerler', 'sikicem', 'sikcen', 'sikmis', 'sikmisim',
+  'penis', 'dick', 'cock', 'yarak', 'cük', 'sik',
+  'çük', 'cihaz', 'kilic', 'cezalandırıcı', 'cezalandirici'
+  // Diger triggerlar icin ekleme yapabilin
+]);
+
+const dickEmojis = ['🍆', '8', '🔥', '😈', '🤤', '👅', '💦', '😏', '🍌', '👀', '🫦', '😩', '👄'];
+const heads       = ['D', '>', '◯', 'O', 'P', '👉', '🍒', 'ᵈ', 'ᵖ', 'ᵥ', 'ᶜ', 'ᵇ'];
+const drops       = ['', '💦', '~', 'ᵛ', '💧', '⋯', '👄', '😩', '😵‍💫', '🫠', ''];
+
+function randomSingleLineDick(): string {
+  const emoji    = dickEmojis[Math.floor(Math.random() * dickEmojis.length)];
+  const shaftLen = Math.floor(Math.random() * 13) + 2;     // 2–14 characters
+  const shaft    = '='.repeat(shaftLen);
+  const head     = heads[Math.floor(Math.random() * heads.length)];
+  const drop     = drops[Math.floor(Math.random() * drops.length)];
+
+  // ~40% chance to put emoji at the end
+  return Math.random() < 0.40
+    ? `${shaft}${head}${drop} ${emoji}`
+    : `${emoji} ${shaft}${head}${drop}`;
+}
+
+const lastDickSent = new Map<number, number>();  // userId → last send timestamp (ms)
 // ==========================================
 // GROK ve Tweet Yakalama Zamazingosu -Melik
 // ==========================================
@@ -551,6 +582,52 @@ bot.on('text', async (ctx) => {
       return;
     }
 
+      // ──── RANDOM cihaz trigger
+  const messageTextLower = text.toLowerCase().trim();
+  const userId = ctx.from?.id;
+
+  if (userId) {
+    const now = Date.now();
+    const lastTime = lastDickSent.get(userId) ?? 0;
+
+    if (now - lastTime >= 5000) {   // 5 seconds cooldown
+      // Check for whole-word match (space / punctuation / start/end)
+      const triggersWholeWord = dickTriggerWords.some(word => {
+        const pattern = new RegExp(
+          `(^|\\s|[.,!?;:"'\\-()])` + word + `($|\\s|[.,!?;:"'\\-()])`,
+          'i'
+        );
+        return pattern.test(text);
+      });
+
+      if (!text.startsWith('/') && triggersWholeWord) {
+        const dick = randomSingleLineDick();
+
+        let prefix = '';
+        if (Math.random() < 0.38) {
+          const prefixes = [
+            '', 'al sana ', 'buyur ', 'işte ', '😂 ',
+            'patron ', 'kral hareket ', 'bak bak ',
+            'al bunu da ', '😭 ', 'ohh ', 'yesss '
+          ];
+          prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+        }
+
+        await ctx.reply(`${prefix}${dick}`, {
+          reply_parameters: { message_id: messageId },
+        });
+
+        // Update cooldown
+        lastDickSent.set(userId, now);
+
+        // Optional: skip normal AI reply after dick ascii
+        // return;
+      }
+    }
+    // else → too soon, silent skip
+  }
+  // Cihaz trigger sonu--
+    });
     // Kripto
     if (userQuery.includes('kripto') || userQuery.includes('btc') || userQuery.includes('eth') || userQuery.includes('sol') || userQuery.includes('bnb') || userQuery.includes('fiyat')) {
       const prices = await getCryptoPrices();
