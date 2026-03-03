@@ -582,26 +582,44 @@ bot.on('text', async (ctx) => {
       return;
     }
 
-      // ──── RANDOM cihaz trigger
+  bot.on('text', async (ctx) => {
+  if (!ctx.message || !('text' in ctx.message)) return;
+
+  const text = ctx.message.text;
+  const messageId = ctx.message.message_id;
+  const userName = ctx.from?.first_name || 'Anonim';
+  const replyToId = ctx.message.reply_to_message?.message_id ?? null;
+  const replyToUser = ctx.message.reply_to_message?.from?.username;
+  const replyToMessage = ctx.message?.reply_to_message;
+
+  const now = Date.now();
+  const userId = ctx.from?.id ?? 0;
+
+  if (!text.startsWith('/')) {
+    db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run(messageId, userName, text, replyToId, now);
+  }
+
+  // ────────────────────────────────────────────────
+  // RANDOM CİHAZ TRIGGER — should run ALWAYS (on every text message)
+  // ────────────────────────────────────────────────
   const messageTextLower = text.toLowerCase().trim();
-  const userId = ctx.from?.id;
 
   if (userId) {
-    const now = Date.now();
+    const currentTime = Date.now();
     const lastTime = lastDickSent.get(userId) ?? 0;
 
-    if (now - lastTime >= 5000) {   // 5 seconds cooldown
-      // Check for whole-word match (space / punctuation / start/end)
+    if (currentTime - lastTime >= 5000) {
       const triggersWholeWord = dickTriggerWords.some(word => {
         const pattern = new RegExp(
           `(^|\\s|[.,!?;:"'\\-()])` + word + `($|\\s|[.,!?;:"'\\-()])`,
           'i'
         );
-        return pattern.test(text);
+        return pattern.test(text);   // ← using original text, not lowercased — regex has 'i' flag anyway
       });
 
       if (!text.startsWith('/') && triggersWholeWord) {
-        const dick = randomSingleLineDick();
+        const cihaz = randomSingleLineDick();
 
         let prefix = '';
         if (Math.random() < 0.38) {
@@ -613,21 +631,30 @@ bot.on('text', async (ctx) => {
           prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
         }
 
-        await ctx.reply(`${prefix}${dick}`, {
+        await ctx.reply(`${prefix}${cihaz}`, {
           reply_parameters: { message_id: messageId },
         });
 
-        // Update cooldown
-        lastDickSent.set(userId, now);
+        lastDickSent.set(userId, currentTime);
 
-        // Optional: skip normal AI reply after dick ascii
-        // return;
+        // Optional: return;   ← only if you want to SKIP AI reply after cihaz
       }
     }
-    // else → too soon, silent skip
   }
-  // Cihaz trigger sonu--
-    });
+  // ────────────────────────────────────────────────
+
+  // ────────────────────────────────────────────────
+  // NORMAL BOT RESPONSE LOGIC — only when mentioned / replied / private
+  // ────────────────────────────────────────────────
+  const isPrivate = ctx.chat.type === 'private';
+  const isMentioned = text.includes(`@${botUsername}`);
+  const isReplyToBot = replyToUser === botUsername;
+
+  if (!(isMentioned || isPrivate || isReplyToBot)) return;
+
+  try {
+    let userQuery = text.replace(`@${botUsername}`, '').trim().toLowerCase();
+
     // Kripto
     if (userQuery.includes('kripto') || userQuery.includes('btc') || userQuery.includes('eth') || userQuery.includes('sol') || userQuery.includes('bnb') || userQuery.includes('fiyat')) {
       const prices = await getCryptoPrices();
