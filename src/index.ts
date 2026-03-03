@@ -505,13 +505,15 @@ bot.on('text', async (ctx) => {
   const now = Date.now();
   const userId = ctx.from?.id ?? 0;
 
+  // Save every non-command message to DB
   if (!text.startsWith('/')) {
     db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)')
       .run(messageId, userName, text, replyToId, now);
   }
 
   // ────────────────────────────────────────────────
-  // RANDOM CİHAZ TRIGGER — MUST BE HERE (runs on EVERY text message)
+  // CİHAZ / DICK TRIGGER — THIS MUST BE HERE
+  // (runs on EVERY incoming text message, no mention needed)
   // ────────────────────────────────────────────────
   const messageTextLower = text.toLowerCase().trim();
 
@@ -528,7 +530,7 @@ bot.on('text', async (ctx) => {
         return pattern.test(text);
       });
 
-      if (!text.startsWith('/') && triggersWholeWord) {
+      if (triggersWholeWord) {   // removed redundant !text.startsWith('/') here — already checked above
         const cihaz = randomSingleLineDick();
 
         let prefix = '';
@@ -547,15 +549,14 @@ bot.on('text', async (ctx) => {
 
         lastDickSent.set(userId, currentTime);
 
-        // Optional: uncomment only if you want to STOP normal bot reply after cihaz
-        // return;
+        // Optional: add → return;   if you DON'T want normal AI reply after cihaz
       }
     }
   }
   // ────────────────────────────────────────────────
 
   // ────────────────────────────────────────────────
-  // Normal bot reply logic — only when mentioned / replied / private
+  // BELOW THIS LINE: only runs when bot is mentioned / replied to / private chat
   // ────────────────────────────────────────────────
   const isPrivate = ctx.chat.type === 'private';
   const isMentioned = text.includes(`@${botUsername}`);
@@ -563,8 +564,10 @@ bot.on('text', async (ctx) => {
 
   if (!(isMentioned || isPrivate || isReplyToBot)) return;
 
-  // ... rest of your try { ... } block remains unchanged ...
+  try {
+    let userQuery = text.replace(`@${botUsername}`, '').trim().toLowerCase();
 
+    // ... your existing blogic ...
   
 // --- YENİ EKLENEN: TAVILY ARAMA FONKSİYONU ---
 async function searchWebTavily(query: string): Promise<string> {
