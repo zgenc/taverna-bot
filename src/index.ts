@@ -490,6 +490,82 @@ async function getTurkishQuote(): Promise<string> {
   return quotes[Math.floor(Math.random() * quotes.length)];
 }
 
+
+// cihaz arama
+bot.on('text', async (ctx) => {
+  if (!ctx.message || !('text' in ctx.message)) return;
+
+  const text = ctx.message.text;
+  const messageId = ctx.message.message_id;
+  const userName = ctx.from?.first_name || 'Anonim';
+  const replyToId = ctx.message.reply_to_message?.message_id ?? null;
+  const replyToUser = ctx.message.reply_to_message?.from?.username;
+  const replyToMessage = ctx.message?.reply_to_message;
+
+  const now = Date.now();
+  const userId = ctx.from?.id ?? 0;
+
+  if (!text.startsWith('/')) {
+    db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run(messageId, userName, text, replyToId, now);
+  }
+
+  // ────────────────────────────────────────────────
+  // RANDOM CİHAZ TRIGGER — MUST BE HERE (runs on EVERY text message)
+  // ────────────────────────────────────────────────
+  const messageTextLower = text.toLowerCase().trim();
+
+  if (userId) {
+    const currentTime = Date.now();
+    const lastTime = lastDickSent.get(userId) ?? 0;
+
+    if (currentTime - lastTime >= 5000) {
+      const triggersWholeWord = dickTriggerWords.some(word => {
+        const pattern = new RegExp(
+          `(^|\\s|[.,!?;:"'\\-()])` + word + `($|\\s|[.,!?;:"'\\-()])`,
+          'i'
+        );
+        return pattern.test(text);
+      });
+
+      if (!text.startsWith('/') && triggersWholeWord) {
+        const cihaz = randomSingleLineDick();
+
+        let prefix = '';
+        if (Math.random() < 0.38) {
+          const prefixes = [
+            '', 'al sana ', 'buyur ', 'işte ', '😂 ',
+            'patron ', 'kral hareket ', 'bak bak ',
+            'al bunu da ', '😭 ', 'ohh ', 'yesss '
+          ];
+          prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+        }
+
+        await ctx.reply(`${prefix}${cihaz}`, {
+          reply_parameters: { message_id: messageId },
+        });
+
+        lastDickSent.set(userId, currentTime);
+
+        // Optional: uncomment only if you want to STOP normal bot reply after cihaz
+        // return;
+      }
+    }
+  }
+  // ────────────────────────────────────────────────
+
+  // ────────────────────────────────────────────────
+  // Normal bot reply logic — only when mentioned / replied / private
+  // ────────────────────────────────────────────────
+  const isPrivate = ctx.chat.type === 'private';
+  const isMentioned = text.includes(`@${botUsername}`);
+  const isReplyToBot = replyToUser === botUsername;
+
+  if (!(isMentioned || isPrivate || isReplyToBot)) return;
+
+  // ... rest of your try { ... } block remains unchanged ...
+
+  
 // --- YENİ EKLENEN: TAVILY ARAMA FONKSİYONU ---
 async function searchWebTavily(query: string): Promise<string> {
   const apiKey = process.env.TAVILY_API_KEY;
@@ -581,79 +657,6 @@ bot.on('text', async (ctx) => {
       });
       return;
     }
-
-  bot.on('text', async (ctx) => {
-  if (!ctx.message || !('text' in ctx.message)) return;
-
-  const text = ctx.message.text;
-  const messageId = ctx.message.message_id;
-  const userName = ctx.from?.first_name || 'Anonim';
-  const replyToId = ctx.message.reply_to_message?.message_id ?? null;
-  const replyToUser = ctx.message.reply_to_message?.from?.username;
-  const replyToMessage = ctx.message?.reply_to_message;
-
-  const now = Date.now();
-  const userId = ctx.from?.id ?? 0;
-
-  if (!text.startsWith('/')) {
-    db.prepare('INSERT INTO messages_v2 (message_id, user_name, message_text, reply_to_id, timestamp) VALUES (?, ?, ?, ?, ?)')
-      .run(messageId, userName, text, replyToId, now);
-  }
-
-  // ────────────────────────────────────────────────
-  // RANDOM CİHAZ TRIGGER — should run ALWAYS (on every text message)
-  // ────────────────────────────────────────────────
-  const messageTextLower = text.toLowerCase().trim();
-
-  if (userId) {
-    const currentTime = Date.now();
-    const lastTime = lastDickSent.get(userId) ?? 0;
-
-    if (currentTime - lastTime >= 5000) {
-      const triggersWholeWord = dickTriggerWords.some(word => {
-        const pattern = new RegExp(
-          `(^|\\s|[.,!?;:"'\\-()])` + word + `($|\\s|[.,!?;:"'\\-()])`,
-          'i'
-        );
-        return pattern.test(text);   // ← using original text, not lowercased — regex has 'i' flag anyway
-      });
-
-      if (!text.startsWith('/') && triggersWholeWord) {
-        const cihaz = randomSingleLineDick();
-
-        let prefix = '';
-        if (Math.random() < 0.38) {
-          const prefixes = [
-            '', 'al sana ', 'buyur ', 'işte ', '😂 ',
-            'patron ', 'kral hareket ', 'bak bak ',
-            'al bunu da ', '😭 ', 'ohh ', 'yesss '
-          ];
-          prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-        }
-
-        await ctx.reply(`${prefix}${cihaz}`, {
-          reply_parameters: { message_id: messageId },
-        });
-
-        lastDickSent.set(userId, currentTime);
-
-        // Optional: return;   ← only if you want to SKIP AI reply after cihaz
-      }
-    }
-  }
-  // ────────────────────────────────────────────────
-
-  // ────────────────────────────────────────────────
-  // NORMAL BOT RESPONSE LOGIC — only when mentioned / replied / private
-  // ────────────────────────────────────────────────
-  const isPrivate = ctx.chat.type === 'private';
-  const isMentioned = text.includes(`@${botUsername}`);
-  const isReplyToBot = replyToUser === botUsername;
-
-  if (!(isMentioned || isPrivate || isReplyToBot)) return;
-
-  try {
-    let userQuery = text.replace(`@${botUsername}`, '').trim().toLowerCase();
 
     // Kripto
     if (userQuery.includes('kripto') || userQuery.includes('btc') || userQuery.includes('eth') || userQuery.includes('sol') || userQuery.includes('bnb') || userQuery.includes('fiyat')) {
